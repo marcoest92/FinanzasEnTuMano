@@ -84,7 +84,8 @@ export async function handleIncomingText(
       return;
     }
     if (raw.startsWith('/dashboard')) {
-      await ctx.reply(`Tu dashboard: ${config.dashboardPublicUrl()}/dashboard/${user.dashboard_token}`);
+      const base = config.dashboardPublicUrl();
+      await ctx.reply(`Tu dashboard: ${base}/#/dashboard/${user.dashboard_token}`);
       return;
     }
   }
