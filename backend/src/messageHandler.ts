@@ -1,5 +1,11 @@
 import type { Context } from 'telegraf';
-import { WELCOME_MESSAGE, SAVED_MESSAGE, VOICE_ERROR, VOICE_PROCESSING } from './constants.js';
+import {
+  ASSISTANT_INTRO_MESSAGE,
+  WELCOME_MESSAGE,
+  SAVED_MESSAGE,
+  VOICE_ERROR,
+  VOICE_PROCESSING,
+} from './constants.js';
 import { config } from './config.js';
 import {
   deletePending,
@@ -100,6 +106,12 @@ export async function handleIncomingText(
   if (pending) {
     if (pending.awaiting_clarification) {
       const parsed = await parseTransactionText(raw, defaultDate, pending);
+      if (parsed.is_greeting) {
+        await ctx.reply(
+          `${ASSISTANT_INTRO_MESSAGE}\n\nSigo pendiente de los datos del movimiento que estábamos armando.`
+        );
+        return;
+      }
       if (parsed.needs_clarification) {
         const partial: PendingPayload = {
           type: parsed.type ?? pending.type,
@@ -161,6 +173,10 @@ export async function handleIncomingText(
     }
     if (intent.kind === 'correct') {
       const parsed = await parseTransactionText(intent.mergedText, defaultDate, null);
+      if (parsed.is_greeting) {
+        await ctx.reply(`${ASSISTANT_INTRO_MESSAGE}\n\n${buildBlockPendingMessage(pending)}`);
+        return;
+      }
       if (parsed.needs_clarification) {
         const partial: PendingPayload = {
           type: parsed.type ?? pending.type,
@@ -185,12 +201,16 @@ export async function handleIncomingText(
       return;
     }
 
-    await ctx.reply(buildBlockPendingMessage(pending));
+    await ctx.reply(`${ASSISTANT_INTRO_MESSAGE}\n\n${buildBlockPendingMessage(pending)}`);
     return;
   }
 
   // --- Sin pendiente: nuevo parseo
   const parsed = await parseTransactionText(raw, defaultDate, null);
+  if (parsed.is_greeting) {
+    await ctx.reply(ASSISTANT_INTRO_MESSAGE);
+    return;
+  }
   if (parsed.needs_clarification) {
     const partial: PendingPayload = {
       type: parsed.type ?? undefined,

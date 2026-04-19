@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "build": "tsc"
+    "build": "tsc",
+    "try-parse": "tsx scripts/try-parse.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

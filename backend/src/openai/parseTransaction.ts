@@ -5,6 +5,8 @@ import type { PendingPayload, TxType } from '../types.js';
 const CATEGORIES_LIST = FIXED_CATEGORIES.join('\n- ');
 
 export interface ParsedTransaction {
+  /** Solo saludo/cortesía sin movimiento: el handler responde con rol y funciones. */
+  is_greeting: boolean;
   type: TxType | null;
   amount: number | null;
   category: string;
@@ -48,7 +50,12 @@ Integra la nueva respuesta del usuario y completa tipo/monto/categoría/descripc
 Categorías válidas (usa exactamente una de la lista):
 - ${CATEGORIES_LIST}
 
-Reglas:
+Saludos vs movimientos:
+- is_greeting: true SOLO si el mensaje es únicamente saludo, despedida corta o cortesía sin ningún dato de dinero ni de movimiento (ej: "hola", "buenos días", "qué tal", "hey"). No incluye si hay monto, tipo de movimiento o descripción de compra/cobro.
+- Si el mensaje mezcla saludo con un gasto o ingreso claro (ej: "hola, taxi 8000"), is_greeting false y extrae el movimiento con normalidad.
+- Si is_greeting es true, pon needs_clarification false; type y amount null; description puede ser ""; date ${defaultDate}; clarification_question null. NO inventes movimientos.
+
+Reglas de extracción (cuando is_greeting es false):
 - type: "expense" para gastos/pagos/compras; "income" para ingresos/cobros/sueldo/me pagaron/ventas.
 - amount: número en pesos COP (entero). Normaliza expresiones: "2 millones" -> 2000000, "mil" -> 1000, "15000" -> 15000.
 - date: ISO YYYY-MM-DD. Si el usuario no dice fecha, usa ${defaultDate} (fecha de hoy del mensaje en contexto).
@@ -57,7 +64,7 @@ Reglas:
 - Si needs_clarification es true, los demás campos pueden ser null o parciales.
 ${contextBlock}
 
-Responde SOLO JSON con keys: type (null o "income"|"expense"), amount (null o number), category (string), description (string), date (string YYYY-MM-DD), needs_clarification (boolean), clarification_question (null o string).`,
+Responde SOLO JSON con keys: is_greeting (boolean), type (null o "income"|"expense"), amount (null o number), category (string), description (string), date (string YYYY-MM-DD), needs_clarification (boolean), clarification_question (null o string).`,
       },
       {
         role: 'user',
@@ -69,6 +76,7 @@ Responde SOLO JSON con keys: type (null o "income"|"expense"), amount (null o nu
   const raw = completion.choices[0]?.message?.content;
   if (!raw) {
     return {
+      is_greeting: false,
       type: null,
       amount: null,
       category: DEFAULT_CATEGORY,
@@ -84,6 +92,7 @@ Responde SOLO JSON con keys: type (null o "income"|"expense"), amount (null o nu
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch {
     return {
+      is_greeting: false,
       type: null,
       amount: null,
       category: DEFAULT_CATEGORY,
@@ -93,6 +102,8 @@ Responde SOLO JSON con keys: type (null o "income"|"expense"), amount (null o nu
       clarification_question: 'No entendí bien. ¿Es gasto o ingreso y de cuánto en COP?',
     };
   }
+
+  let is_greeting = Boolean(parsed.is_greeting);
 
   const typeRaw = parsed.type;
   const type: TxType | null =
@@ -114,10 +125,29 @@ Responde SOLO JSON con keys: type (null o "income"|"expense"), amount (null o nu
   const clarification_question =
     typeof parsed.clarification_question === 'string' ? parsed.clarification_question : null;
 
+  // Un saludo mezclado con datos válidos no debe tratarse como solo saludo
+  if (is_greeting && (type !== null || amount !== null)) {
+    is_greeting = false;
+  }
+
+  if (is_greeting) {
+    return {
+      is_greeting: true,
+      type: null,
+      amount: null,
+      category: DEFAULT_CATEGORY,
+      description: '',
+      date: defaultDate,
+      needs_clarification: false,
+      clarification_question: null,
+    };
+  }
+
   // If we still miss required fields, force clarification
   const missingCore = type === null || amount === null;
   if (missingCore && !needs_clarification) {
     return {
+      is_greeting: false,
       type,
       amount,
       category,
@@ -132,6 +162,7 @@ Responde SOLO JSON con keys: type (null o "income"|"expense"), amount (null o nu
   }
 
   return {
+    is_greeting: false,
     type,
     amount,
     category,
