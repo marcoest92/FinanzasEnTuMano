@@ -1,3 +1,7 @@
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 :root {
   color-scheme: dark;
   --bg: #12151c;
@@ -23,12 +27,25 @@
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
 }
 
 .page {
   max-width: 960px;
   margin: 0 auto;
-  padding: 1.75rem 1.25rem 3rem;
+  padding: max(1.25rem, env(safe-area-inset-top)) max(1.25rem, env(safe-area-inset-right))
+    max(2.5rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left));
+}
+
+.home-landing p {
+  max-width: 36rem;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.dashboard-page {
+  padding-bottom: max(2.5rem, env(safe-area-inset-bottom));
 }
 
 /* —— Dashboard header —— */
@@ -104,7 +121,8 @@ body {
   color: var(--text);
   padding: 0.45rem 0.65rem;
   font: inherit;
-  font-size: 0.9rem;
+  font-size: 1rem;
+  min-height: 44px;
 }
 
 .btn-refresh {
@@ -117,6 +135,8 @@ body {
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
+  min-height: 44px;
+  touch-action: manipulation;
   transition: background 0.15s, border-color 0.15s;
 }
 
@@ -249,13 +269,16 @@ body {
   }
 
   .category-donut {
-    max-width: 280px;
+    max-width: min(100%, 320px);
     margin: 0 auto;
   }
 }
 
 .category-donut {
-  min-height: 240px;
+  width: 100%;
+  height: clamp(200px, 58vw, 280px);
+  min-height: 200px;
+  max-height: 320px;
 }
 
 .category-list {
@@ -383,4 +406,81 @@ td.num {
 
 .muted {
   color: var(--muted);
+}
+
+/* —— Móvil y pantallas estrechas —— */
+@media (max-width: 640px) {
+  .dash-title {
+    font-size: 1.35rem;
+  }
+
+  .dash-subtitle {
+    font-size: 0.82rem;
+  }
+
+  .dash-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+  }
+
+  .dash-header-brand {
+    align-items: flex-start;
+  }
+
+  .dash-header-actions {
+    width: 100%;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .month-field {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .month-field input[type='month'] {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .dash-kpis {
+    grid-template-columns: 1fr;
+  }
+
+  .category-panel {
+    padding: 1rem 1rem 1.25rem;
+  }
+
+  .table-wrap {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  table {
+    font-size: 0.82rem;
+  }
+
+  th,
+  td {
+    padding: 0.55rem 0.5rem;
+  }
+
+  th:nth-child(4),
+  td:nth-child(4) {
+    max-width: 7rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 380px) {
+  .dash-header-actions {
+    flex-direction: column;
+  }
+
+  .btn-refresh {
+    width: 100%;
+  }
 }

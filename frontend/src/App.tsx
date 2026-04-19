@@ -9,7 +9,7 @@ export function App() {
         <Route
           path="/"
           element={
-            <div className="page">
+            <div className="page home-landing">
               <p>FinanceBot — abre el enlace que te envía el bot en Telegram (incluye tu token).</p>
             </div>
           }

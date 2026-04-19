@@ -53,7 +53,7 @@ function DonutWithList({ data }: { data: PieRow[] }) {
   return (
     <div className="category-block-grid">
       <div className="category-donut">
-        <ResponsiveContainer width="100%" height={260}>
+        <ResponsiveContainer width="100%" height="100%">
           <PieChart margin={PIE_MARGIN}>
             <Pie
               data={data}
