@@ -3,7 +3,15 @@ import Fastify from 'fastify';
 import { Telegraf } from 'telegraf';
 import type { Update } from 'telegraf/types';
 import { config } from './config.js';
-import { handleIncomingText, handleVoice } from './messageHandler.js';
+import {
+  handleIncomingText,
+  handleVoice,
+  handleClarifyExpense,
+  handleClarifyIncome,
+  handleConfirmYes,
+  handleConfirmNo,
+  handleConfirmEdit,
+} from './messageHandler.js';
 
 const bot = new Telegraf(config.telegramBotToken());
 
@@ -27,6 +35,31 @@ bot.action('show_help', async (ctx) => {
   await ctx.reply(
     'Puedes escribir cualquier gasto o ingreso en texto libre o enviar una nota de voz. El bot interpreta tu mensaje y lo registra automáticamente.'
   );
+});
+
+bot.action('clarify_expense', async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleClarifyExpense(ctx);
+});
+
+bot.action('clarify_income', async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleClarifyIncome(ctx);
+});
+
+bot.action('confirm_yes', async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleConfirmYes(ctx);
+});
+
+bot.action('confirm_no', async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleConfirmNo(ctx);
+});
+
+bot.action('confirm_edit', async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleConfirmEdit(ctx);
 });
 
 const app = Fastify({ logger: true });

@@ -16,7 +16,7 @@ import {
   type UserRow,
 } from './db.js';
 import { formatCop, formatDateDdMmYyyy, parseLocalDate, dateYyyyMmDdBogota } from './format.js';
-import { parseTransactionText } from './openai/parseTransaction.js';
+import { parseTransactionText, type ParsedTransaction } from './openai/parseTransaction.js';
 import {
   classifyPendingFollowup,
   pendingSummaryFromPayload,
@@ -59,7 +59,144 @@ function buildConfirmationMessage(p: PendingPayload): string {
       : `un gasto`;
   const amountStr = formatCop(amount);
   const dateStr = formatDateDdMmYyyy(parseLocalDate(p.date));
-  return `He registrado ${tipo} de ${amountStr} en ${p.category} el ${dateStr}.\n¿Confirmas? (sí / no)`;
+  return `He registrado ${tipo} de ${amountStr} en ${p.category} el ${dateStr}.\n¿Confirmas?`;
+}
+
+function confirmationInlineKeyboard() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('✅ Guardar', 'confirm_yes')],
+    [Markup.button.callback('✏️ Corregir', 'confirm_edit')],
+    [Markup.button.callback('❌ Cancelar', 'confirm_no')],
+  ]);
+}
+
+function typeClarificationInlineKeyboard() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('📥 Gasto', 'clarify_expense')],
+    [Markup.button.callback('📤 Ingreso', 'clarify_income')],
+  ]);
+}
+
+/** Solo falta tipo: hay monto; botones Gasto/Ingreso en lugar de pregunta abierta. */
+function isClarifyTypeOnly(parsed: ParsedTransaction): boolean {
+  return parsed.needs_clarification && parsed.type === null && parsed.amount !== null;
+}
+
+async function replyWithConfirmation(ctx: Context, p: PendingPayload): Promise<void> {
+  await ctx.reply(buildConfirmationMessage(p), confirmationInlineKeyboard());
+}
+
+async function replyTypeClarificationPrompt(ctx: Context): Promise<void> {
+  await ctx.reply('¿Es un gasto o un ingreso?', typeClarificationInlineKeyboard());
+}
+
+async function commitPendingTransaction(ctx: Context, user: UserRow, pending: PendingPayload): Promise<void> {
+  if (pending.type === undefined || pending.amount === undefined) {
+    await ctx.reply('Faltan datos del movimiento. Escribe el gasto o ingreso de nuevo.');
+    await deletePending(user.id);
+    return;
+  }
+  await insertTransaction(
+    user.id,
+    pending.type,
+    pending.amount,
+    pending.category,
+    pending.description,
+    pending.date
+  );
+  await deletePending(user.id);
+  await ctx.reply(SAVED_MESSAGE);
+}
+
+async function discardPendingTransaction(ctx: Context, userId: string): Promise<void> {
+  await deletePending(userId);
+  await ctx.reply('Listo, descarté el registro pendiente. Puedes enviar un nuevo movimiento.');
+}
+
+async function enterPendingEditMode(ctx: Context, userId: string, pending: PendingPayload): Promise<void> {
+  await upsertPending(userId, { ...pending, awaiting_clarification: true });
+  await ctx.reply('¿Qué quieres corregir? Escríbelo y lo actualizo.');
+}
+
+function isConfirmationPending(p: PendingPayload): boolean {
+  return !p.awaiting_clarification && p.type !== undefined && p.amount !== undefined;
+}
+
+export async function handleConfirmYes(ctx: Context): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const { user } = await ensureUser(from.id);
+  const row = await getPendingValid(user.id);
+  const pending = row?.payload;
+  if (!pending || !isConfirmationPending(pending)) {
+    await ctx.reply('No hay confirmación pendiente.');
+    return;
+  }
+  await commitPendingTransaction(ctx, user, pending);
+}
+
+export async function handleConfirmNo(ctx: Context): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const { user } = await ensureUser(from.id);
+  const row = await getPendingValid(user.id);
+  const pending = row?.payload;
+  if (!pending || !isConfirmationPending(pending)) {
+    await ctx.reply('No hay confirmación pendiente.');
+    return;
+  }
+  await discardPendingTransaction(ctx, user.id);
+}
+
+export async function handleConfirmEdit(ctx: Context): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const { user } = await ensureUser(from.id);
+  const row = await getPendingValid(user.id);
+  const pending = row?.payload;
+  if (!pending || !isConfirmationPending(pending)) {
+    await ctx.reply('No hay confirmación pendiente.');
+    return;
+  }
+  await enterPendingEditMode(ctx, user.id, pending);
+}
+
+export async function handleClarifyExpense(ctx: Context): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const { user } = await ensureUser(from.id);
+  const row = await getPendingValid(user.id);
+  const pending = row?.payload;
+  if (!pending?.awaiting_clarification || pending.amount == null) {
+    await ctx.reply('No hay aclaración pendiente o falta el monto.');
+    return;
+  }
+  const full: PendingPayload = {
+    ...pending,
+    type: 'expense',
+    awaiting_clarification: false,
+  };
+  await upsertPending(user.id, full);
+  await replyWithConfirmation(ctx, full);
+}
+
+export async function handleClarifyIncome(ctx: Context): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const { user } = await ensureUser(from.id);
+  const row = await getPendingValid(user.id);
+  const pending = row?.payload;
+  if (!pending?.awaiting_clarification || pending.amount == null) {
+    await ctx.reply('No hay aclaración pendiente o falta el monto.');
+    return;
+  }
+  const full: PendingPayload = {
+    ...pending,
+    type: 'income',
+    awaiting_clarification: false,
+  };
+  await upsertPending(user.id, full);
+  await replyWithConfirmation(ctx, full);
 }
 
 function toFullPayload(parsed: {
@@ -138,7 +275,11 @@ export async function handleIncomingText(
           awaiting_clarification: true,
         };
         await upsertPending(user.id, partial);
-        if (parsed.clarification_question) await ctx.reply(parsed.clarification_question);
+        if (isClarifyTypeOnly(parsed)) {
+          await replyTypeClarificationPrompt(ctx);
+        } else if (parsed.clarification_question) {
+          await ctx.reply(parsed.clarification_question);
+        }
         return;
       }
       const full = toFullPayload(parsed);
@@ -148,32 +289,17 @@ export async function handleIncomingText(
       }
       full.awaiting_clarification = false;
       await upsertPending(user.id, full);
-      await ctx.reply(buildConfirmationMessage(full));
+      await replyWithConfirmation(ctx, full);
       return;
     }
 
     if (isConfirmYes(raw)) {
-      if (pending.type === undefined || pending.amount === undefined) {
-        await ctx.reply('Faltan datos del movimiento. Escribe el gasto o ingreso de nuevo.');
-        await deletePending(user.id);
-        return;
-      }
-      await insertTransaction(
-        user.id,
-        pending.type,
-        pending.amount,
-        pending.category,
-        pending.description,
-        pending.date
-      );
-      await deletePending(user.id);
-      await ctx.reply(SAVED_MESSAGE);
+      await commitPendingTransaction(ctx, user, pending);
       return;
     }
 
     if (isNoOrCancel(raw)) {
-      await deletePending(user.id);
-      await ctx.reply('Listo, descarté el registro pendiente. Puedes enviar un nuevo movimiento.');
+      await discardPendingTransaction(ctx, user.id);
       return;
     }
 
@@ -203,7 +329,11 @@ export async function handleIncomingText(
           awaiting_clarification: true,
         };
         await upsertPending(user.id, partial);
-        if (parsed.clarification_question) await ctx.reply(parsed.clarification_question);
+        if (isClarifyTypeOnly(parsed)) {
+          await replyTypeClarificationPrompt(ctx);
+        } else if (parsed.clarification_question) {
+          await ctx.reply(parsed.clarification_question);
+        }
         return;
       }
       const full = toFullPayload(parsed);
@@ -213,7 +343,7 @@ export async function handleIncomingText(
       }
       full.awaiting_clarification = false;
       await upsertPending(user.id, full);
-      await ctx.reply(buildConfirmationMessage(full));
+      await replyWithConfirmation(ctx, full);
       return;
     }
 
@@ -237,7 +367,11 @@ export async function handleIncomingText(
       awaiting_clarification: true,
     };
     await upsertPending(user.id, partial);
-    if (parsed.clarification_question) await ctx.reply(parsed.clarification_question);
+    if (isClarifyTypeOnly(parsed)) {
+      await replyTypeClarificationPrompt(ctx);
+    } else if (parsed.clarification_question) {
+      await ctx.reply(parsed.clarification_question);
+    }
     return;
   }
 
@@ -248,7 +382,7 @@ export async function handleIncomingText(
   }
   full.awaiting_clarification = false;
   await upsertPending(user.id, full);
-  await ctx.reply(buildConfirmationMessage(full));
+  await replyWithConfirmation(ctx, full);
 }
 
 export async function handleVoice(ctx: Context): Promise<void> {
