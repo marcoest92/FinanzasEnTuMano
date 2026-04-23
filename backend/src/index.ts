@@ -17,6 +17,18 @@ bot.on('voice', async (ctx) => {
   await handleVoice(ctx);
 });
 
+bot.action('show_summary', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply('Cargando tu resumen...');
+});
+
+bot.action('show_help', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply(
+    'Puedes escribir cualquier gasto o ingreso en texto libre o enviar una nota de voz. El bot interpreta tu mensaje y lo registra automáticamente.'
+  );
+});
+
 const app = Fastify({ logger: true });
 
 app.get('/', async () => ({

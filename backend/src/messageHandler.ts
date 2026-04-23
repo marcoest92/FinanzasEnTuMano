@@ -1,7 +1,7 @@
 import type { Context } from 'telegraf';
+import { Markup } from 'telegraf';
 import {
   ASSISTANT_INTRO_MESSAGE,
-  WELCOME_MESSAGE,
   SAVED_MESSAGE,
   VOICE_ERROR,
   VOICE_PROCESSING,
@@ -24,6 +24,22 @@ import {
 import { transcribeOggOrMp3 } from './openai/transcribe.js';
 import { isConfirmYes, isNoOrCancel } from './confirm.js';
 import type { PendingPayload } from './types.js';
+
+const WELCOME_MESSAGE_TEXT = `¡Hola! Soy tu asistente de finanzas 💰
+Escríbeme cualquier gasto o ingreso en lenguaje natural, por ejemplo:
+  • 'Almuerzo 15000'
+  • 'Me pagaron 2 millones'
+  • También puedes enviar una nota de voz 🎙️`;
+
+async function replyWelcome(ctx: Context): Promise<void> {
+  await ctx.reply(
+    WELCOME_MESSAGE_TEXT,
+    Markup.inlineKeyboard([
+      [Markup.button.callback('📊 Ver resumen del mes', 'show_summary')],
+      [Markup.button.callback('❓ ¿Cómo funciono?', 'show_help')],
+    ])
+  );
+}
 
 function pendingShortSummary(p: PendingPayload): string {
   const t = p.type === 'income' ? 'Ingreso' : 'Gasto';
@@ -75,18 +91,18 @@ export async function handleIncomingText(
   let isNew = false;
   if (preloaded) {
     user = preloaded.user;
-    if (!preloaded.skipWelcome) await ctx.reply(WELCOME_MESSAGE);
+    if (!preloaded.skipWelcome) await replyWelcome(ctx);
   } else {
     const ensured = await ensureUser(from.id);
     user = ensured.user;
     isNew = ensured.isNew;
-    if (isNew) await ctx.reply(WELCOME_MESSAGE);
+    if (isNew) await replyWelcome(ctx);
   }
 
   const raw = text.trim();
   if (raw.startsWith('/')) {
     if (raw.startsWith('/start')) {
-      if (!isNew) await ctx.reply(WELCOME_MESSAGE);
+      if (!isNew) await replyWelcome(ctx);
       return;
     }
     if (raw.startsWith('/dashboard')) {
@@ -241,7 +257,7 @@ export async function handleVoice(ctx: Context): Promise<void> {
   if (!from || !msg || !('voice' in msg) || !msg.voice) return;
 
   const ensured = await ensureUser(from.id);
-  if (ensured.isNew) await ctx.reply(WELCOME_MESSAGE);
+  if (ensured.isNew) await replyWelcome(ctx);
   await ctx.reply(VOICE_PROCESSING);
   const fileId = msg.voice.file_id;
   let fileLink: string;

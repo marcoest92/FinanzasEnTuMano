@@ -32,8 +32,6 @@ Puedes registrar gastos e ingresos escribiendo directamente, por ejemplo:
 También puedes enviar notas de voz.
 Escribe /dashboard cuando quieras ver tu resumen.`;
 
-export const WELCOME_MESSAGE = ASSISTANT_INTRO_MESSAGE;
-
 export const VOICE_PROCESSING = 'Procesando tu nota de voz...';
 export const VOICE_ERROR = 'No pude entender el audio. ¿Puedes escribirlo?';
 export const SAVED_MESSAGE = 'Movimiento registrado. ¿Deseas agregar otro?';
