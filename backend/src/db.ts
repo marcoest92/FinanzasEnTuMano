@@ -1,8 +1,57 @@
 import { randomBytes } from 'node:crypto';
 import { getSupabase } from './supabase.js';
+import { dateYyyyMmDdBogota } from './format.js';
 import type { PendingPayload, UserPlan } from './types.js';
 import { DEFAULT_USER_PLAN } from './types.js';
 import type { TxType } from './types.js';
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** Último día del mes calendario (month 1–12), YYYY-MM-DD. */
+function lastDayOfMonthYyyyMmDd(year: number, month: number): string {
+  const day = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+}
+
+/**
+ * Suma de ingresos y gastos en `transactions` para el usuario, con `date` entre el día 1 del mes
+ * (year, month) y el final del rango: si es el mes calendario actual en Bogotá (según `nowUnixSeconds`),
+ * hasta ese día inclusive; si es un mes pasado, hasta el último día del mes.
+ */
+export async function getMonthSummary(
+  userId: string,
+  year: number,
+  month: number,
+  nowUnixSeconds: number = Math.floor(Date.now() / 1000)
+): Promise<{ totalIncome: number; totalExpense: number }> {
+  const first = `${year}-${pad2(month)}-01`;
+  const lastCal = lastDayOfMonthYyyyMmDd(year, month);
+  const todayStr = dateYyyyMmDdBogota(nowUnixSeconds);
+  const [ty, tm] = todayStr.split('-').map(Number);
+  const isCurrentMonth = year === ty && month === tm;
+  const end = isCurrentMonth ? (todayStr < lastCal ? todayStr : lastCal) : lastCal;
+
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from('transactions')
+    .select('type, amount')
+    .eq('user_id', userId)
+    .gte('date', first)
+    .lte('date', end);
+  if (error) throw error;
+
+  let totalIncome = 0;
+  let totalExpense = 0;
+  for (const row of data ?? []) {
+    const amt = Number(row.amount);
+    if (!Number.isFinite(amt)) continue;
+    if (row.type === 'income') totalIncome += amt;
+    else if (row.type === 'expense') totalExpense += amt;
+  }
+  return { totalIncome, totalExpense };
+}
 
 export interface UserRow {
   id: string;

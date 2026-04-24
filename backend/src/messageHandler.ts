@@ -10,6 +10,7 @@ import { config } from './config.js';
 import {
   deletePending,
   ensureUser,
+  getMonthSummary,
   getPendingValid,
   insertTransaction,
   upsertPending,
@@ -25,20 +26,54 @@ import { transcribeOggOrMp3 } from './openai/transcribe.js';
 import { isConfirmYes, isNoOrCancel } from './confirm.js';
 import type { PendingPayload } from './types.js';
 
-const WELCOME_MESSAGE_TEXT = `¡Hola! Soy tu asistente de finanzas 💰
-Escríbeme cualquier gasto o ingreso en lenguaje natural, por ejemplo:
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function displayFirstName(ctx: Context): string {
+  const raw = ctx.from?.first_name?.trim();
+  return escapeHtml(raw && raw.length > 0 ? raw : 'ahí');
+}
+
+async function replyNewUserWelcome(ctx: Context): Promise<void> {
+  const fn = displayFirstName(ctx);
+  const text = `👋 ¡Hola ${fn}! Soy tu asistente de finanzas.
+Escríbeme cualquier gasto o ingreso en lenguaje natural:
   • 'Almuerzo 15000'
   • 'Me pagaron 2 millones'
-  • También puedes enviar una nota de voz 🎙️`;
+  • O envíame una nota de voz 🎙️
 
-async function replyWelcome(ctx: Context): Promise<void> {
-  await ctx.reply(
-    WELCOME_MESSAGE_TEXT,
-    Markup.inlineKeyboard([
-      [Markup.button.callback('📊 Ver resumen del mes', 'show_summary')],
-      [Markup.button.callback('❓ ¿Cómo funciono?', 'show_help')],
-    ])
-  );
+Empieza cuando quieras.`;
+  await ctx.reply(text, { parse_mode: 'HTML' });
+}
+
+async function replyReturningUserHome(ctx: Context, user: UserRow, msgDateUnix: number): Promise<void> {
+  const todayStr = dateYyyyMmDdBogota(msgDateUnix);
+  const [y, m] = todayStr.split('-').map(Number);
+  const { totalIncome, totalExpense } = await getMonthSummary(user.id, y, m, msgDateUnix);
+  const balance = totalIncome - totalExpense;
+  const fn = displayFirstName(ctx);
+  const inc = escapeHtml(formatCop(totalIncome));
+  const exp = escapeHtml(formatCop(totalExpense));
+  const balLine =
+    balance >= 0
+      ? `💰 Balance: +${escapeHtml(formatCop(balance))}`
+      : `💰 Balance: -${escapeHtml(formatCop(Math.abs(balance)))}`;
+  const html = `👋 ¡Hola ${fn}!
+
+Este mes llevas:
+📥 Ingresos: ${inc}
+📤 Gastos: ${exp}
+${balLine}
+
+¿Qué registramos hoy?`;
+  await ctx.reply(html, {
+    parse_mode: 'HTML',
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback('📊 Ver detalle del mes', 'show_summary')],
+      [Markup.button.callback('❓ Ayuda', 'show_help')],
+    ]),
+  });
 }
 
 function pendingShortSummary(p: PendingPayload): string {
@@ -219,7 +254,7 @@ function toFullPayload(parsed: {
 export async function handleIncomingText(
   ctx: Context,
   text: string,
-  preloaded?: { user: UserRow; skipWelcome: boolean }
+  preloaded?: { user: UserRow; skipWelcome: boolean; isNew?: boolean }
 ): Promise<void> {
   const from = ctx.from;
   if (!from) return;
@@ -228,18 +263,21 @@ export async function handleIncomingText(
   let isNew = false;
   if (preloaded) {
     user = preloaded.user;
-    if (!preloaded.skipWelcome) await replyWelcome(ctx);
+    isNew = preloaded.isNew ?? false;
+    if (!preloaded.skipWelcome) await replyNewUserWelcome(ctx);
   } else {
     const ensured = await ensureUser(from.id);
     user = ensured.user;
     isNew = ensured.isNew;
-    if (isNew) await replyWelcome(ctx);
+    if (isNew) await replyNewUserWelcome(ctx);
   }
 
   const raw = text.trim();
+  const msgDate =
+    ctx.message && 'date' in ctx.message ? ctx.message.date : Math.floor(Date.now() / 1000);
   if (raw.startsWith('/')) {
     if (raw.startsWith('/start')) {
-      if (!isNew) await replyWelcome(ctx);
+      if (!isNew) await replyReturningUserHome(ctx, user, msgDate);
       return;
     }
     if (raw.startsWith('/dashboard')) {
@@ -249,7 +287,6 @@ export async function handleIncomingText(
     }
   }
 
-  const msgDate = ctx.message && 'date' in ctx.message ? ctx.message.date : Math.floor(Date.now() / 1000);
   const defaultDate = dateYyyyMmDdBogota(msgDate);
 
   const pendingRow = await getPendingValid(user.id);
@@ -354,7 +391,9 @@ export async function handleIncomingText(
   // --- Sin pendiente: nuevo parseo
   const parsed = await parseTransactionText(raw, defaultDate, null);
   if (parsed.is_greeting) {
-    await ctx.reply(ASSISTANT_INTRO_MESSAGE);
+    if (!isNew) {
+      await replyReturningUserHome(ctx, user, msgDate);
+    }
     return;
   }
   if (parsed.needs_clarification) {
@@ -391,7 +430,7 @@ export async function handleVoice(ctx: Context): Promise<void> {
   if (!from || !msg || !('voice' in msg) || !msg.voice) return;
 
   const ensured = await ensureUser(from.id);
-  if (ensured.isNew) await replyWelcome(ctx);
+  if (ensured.isNew) await replyNewUserWelcome(ctx);
   await ctx.reply(VOICE_PROCESSING);
   const fileId = msg.voice.file_id;
   let fileLink: string;
@@ -423,5 +462,9 @@ export async function handleVoice(ctx: Context): Promise<void> {
     await ctx.reply(VOICE_ERROR);
     return;
   }
-  await handleIncomingText(ctx, text, { user: ensured.user, skipWelcome: true });
+  await handleIncomingText(ctx, text, {
+    user: ensured.user,
+    skipWelcome: true,
+    isNew: ensured.isNew,
+  });
 }

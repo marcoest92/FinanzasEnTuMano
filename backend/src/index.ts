@@ -27,13 +27,15 @@ bot.on('voice', async (ctx) => {
 
 bot.action('show_summary', async (ctx) => {
   await ctx.answerCbQuery();
-  await ctx.reply('Cargando tu resumen...');
+  await ctx.reply(
+    'Próximamente podrás ver el detalle completo aquí. Por ahora escribe /dashboard para ver tu resumen web.'
+  );
 });
 
 bot.action('show_help', async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.reply(
-    'Puedes escribir cualquier gasto o ingreso en texto libre o enviar una nota de voz. El bot interpreta tu mensaje y lo registra automáticamente.'
+    "Escríbeme cualquier gasto o ingreso en texto o voz. Ejemplo: 'Taxi 8000', 'Mercado 150000', 'Me pagaron el arriendo'. Yo me encargo del resto."
   );
 });
 
