@@ -7,3 +7,9 @@ dist/
 .DS_Store
 _concat_output.txt
 
+# Claves y artefactos de despliegue (nunca commitear)
+.vercel
+.netlify
+*.pem
+credentials.json
+
