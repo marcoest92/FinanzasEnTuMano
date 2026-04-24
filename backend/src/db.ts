@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { getSupabase } from './supabase.js';
-import type { PendingPayload } from './types.js';
+import type { PendingPayload, UserPlan } from './types.js';
+import { DEFAULT_USER_PLAN } from './types.js';
 import type { TxType } from './types.js';
 
 export interface UserRow {
@@ -9,13 +10,14 @@ export interface UserRow {
   currency: string;
   dashboard_token: string;
   created_at: string;
+  plan: UserPlan;
 }
 
 export async function findUserByTelegram(telegramId: number): Promise<UserRow | null> {
   const sb = getSupabase();
   const { data, error } = await sb
     .from('users')
-    .select('id, telegram_id, currency, dashboard_token, created_at')
+    .select('id, telegram_id, currency, dashboard_token, created_at, plan')
     .eq('telegram_id', telegramId)
     .maybeSingle();
   if (error) throw error;
@@ -27,8 +29,8 @@ export async function createUser(telegramId: number): Promise<UserRow> {
   const sb = getSupabase();
   const { data, error } = await sb
     .from('users')
-    .insert({ telegram_id: telegramId, currency: 'COP', dashboard_token })
-    .select('id, telegram_id, currency, dashboard_token, created_at')
+    .insert({ telegram_id: telegramId, currency: 'COP', dashboard_token, plan: DEFAULT_USER_PLAN })
+    .select('id, telegram_id, currency, dashboard_token, created_at, plan')
     .single();
   if (error) throw error;
   return data as UserRow;
