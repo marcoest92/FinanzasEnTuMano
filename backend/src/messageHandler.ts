@@ -8,6 +8,7 @@ import {
 } from './constants.js';
 import { config } from './config.js';
 import {
+  checkAndIncrementTxCount,
   deletePending,
   ensureUser,
   getMonthSummary,
@@ -134,22 +135,42 @@ async function replyTypeClarificationPrompt(ctx: Context): Promise<void> {
   await ctx.reply('¿Es un gasto o un ingreso?', typeClarificationInlineKeyboard());
 }
 
+const STRIPE_PAYMENT_LINK = 'https://STRIPE_PAYMENT_LINK';
+
 async function commitPendingTransaction(ctx: Context, user: UserRow, pending: PendingPayload): Promise<void> {
   if (pending.type === undefined || pending.amount === undefined) {
     await ctx.reply('Faltan datos del movimiento. Escribe el gasto o ingreso de nuevo.');
     await deletePending(user.id);
     return;
   }
-  await insertTransaction(
-    user.id,
-    pending.type,
-    pending.amount,
-    pending.category,
-    pending.description,
-    pending.date
-  );
-  await deletePending(user.id);
-  await ctx.reply(SAVED_MESSAGE);
+  try {
+    const countResult = await checkAndIncrementTxCount(user.id);
+    if (countResult === 'limit_reached') {
+      await ctx.reply(
+        '⚠️ Alcanzaste tu límite de 40 registros este mes.\n\n' +
+          'Con el plan Pro registras sin límite, además de:\n' +
+          '  • Resumen semanal automático\n' +
+          '  • Exportar tus datos\n' +
+          '  • Categorías personalizadas\n\n' +
+          'Solo $9.900 COP/mes 👇',
+        Markup.inlineKeyboard([[Markup.button.url('🚀 Quiero el plan Pro', STRIPE_PAYMENT_LINK)]])
+      );
+      await deletePending(user.id);
+      return;
+    }
+    await insertTransaction(
+      user.id,
+      pending.type,
+      pending.amount,
+      pending.category,
+      pending.description,
+      pending.date
+    );
+    await deletePending(user.id);
+    await ctx.reply(SAVED_MESSAGE);
+  } catch {
+    await ctx.reply('No pude guardar el movimiento. Intenta de nuevo en unos segundos.');
+  }
 }
 
 async function discardPendingTransaction(ctx: Context, userId: string): Promise<void> {

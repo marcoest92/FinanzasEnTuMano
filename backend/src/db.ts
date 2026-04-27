@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { getSupabase } from './supabase.js';
-import { dateYyyyMmDdBogota } from './format.js';
+import { dateYyyyMmDdBogota, firstDayOfCurrentMonthBogota } from './format.js';
 import type { PendingPayload, UserPlan } from './types.js';
 import { DEFAULT_USER_PLAN } from './types.js';
 import type { TxType } from './types.js';
@@ -146,6 +146,112 @@ export async function deletePending(userId: string): Promise<void> {
   if (error) throw error;
 }
 
+const FREE_MONTHLY_TX_LIMIT = 40;
+const QUOTA_RETRY_MAX = 10;
+
+type UserQuotaRow = {
+  plan: string;
+  plan_expires_at: string | null;
+  monthly_tx_count: number;
+  monthly_tx_reset_at: string;
+};
+
+function parseYyyyMm(yyyyMmDd: string): { y: number; m: number } {
+  const s = yyyyMmDd.slice(0, 10);
+  const [y, m] = s.split('-').map(Number);
+  return { y, m };
+}
+
+/** (a) estrictamente anterior a (b) en calendario año-mes. */
+function isStrictlyPriorCalendarMonth(
+  a: { y: number; m: number },
+  b: { y: number; m: number }
+): boolean {
+  return a.y < b.y || (a.y === b.y && a.m < b.m);
+}
+
+/**
+ * Comprueba cupo freemium e incrementa el contador mensual antes de insertar la transacción.
+ * Lanza si falla un `.update()` en Supabase.
+ */
+export async function checkAndIncrementTxCount(userId: string): Promise<'ok' | 'limit_reached'> {
+  const sb = getSupabase();
+
+  const fetchQuota = async (): Promise<UserQuotaRow> => {
+    const { data, error } = await sb
+      .from('users')
+      .select('plan, plan_expires_at, monthly_tx_count, monthly_tx_reset_at')
+      .eq('id', userId)
+      .single();
+    if (error || !data) throw error ?? new Error('Usuario no encontrado');
+    const r = data as Record<string, unknown>;
+    return {
+      plan: String(r.plan),
+      plan_expires_at: (r.plan_expires_at as string | null) ?? null,
+      monthly_tx_count: Number(r.monthly_tx_count),
+      monthly_tx_reset_at: String(r.monthly_tx_reset_at).slice(0, 10),
+    };
+  };
+
+  for (let attempt = 0; attempt < QUOTA_RETRY_MAX; attempt++) {
+    let row = await fetchQuota();
+
+    if (row.plan === 'pro') {
+      const nowMs = Date.now();
+      const expMs = row.plan_expires_at ? new Date(row.plan_expires_at).getTime() : NaN;
+      const proVigente = Number.isFinite(expMs) && expMs > nowMs;
+      if (proVigente) {
+        return 'ok';
+      }
+      const { error: demoteErr } = await sb
+        .from('users')
+        .update({ plan: 'free', plan_expires_at: null })
+        .eq('id', userId);
+      if (demoteErr) throw demoteErr;
+      row = await fetchQuota();
+    }
+
+    const nowUnix = Math.floor(Date.now() / 1000);
+    const bogotaToday = dateYyyyMmDdBogota(nowUnix);
+    const currentYm = parseYyyyMm(bogotaToday);
+    const resetYm = parseYyyyMm(row.monthly_tx_reset_at);
+    const priorMonth = isStrictlyPriorCalendarMonth(resetYm, currentYm);
+
+    if (priorMonth) {
+      const firstDay = firstDayOfCurrentMonthBogota(nowUnix);
+      const { data: updated, error: upErr } = await sb
+        .from('users')
+        .update({ monthly_tx_count: 1, monthly_tx_reset_at: firstDay })
+        .eq('id', userId)
+        .eq('monthly_tx_reset_at', row.monthly_tx_reset_at)
+        .eq('monthly_tx_count', row.monthly_tx_count)
+        .select('id')
+        .maybeSingle();
+      if (upErr) throw upErr;
+      if (updated) return 'ok';
+      continue;
+    }
+
+    const count = row.monthly_tx_count;
+    if (count >= FREE_MONTHLY_TX_LIMIT) {
+      return 'limit_reached';
+    }
+
+    const { data: incRow, error: incErr } = await sb
+      .from('users')
+      .update({ monthly_tx_count: count + 1 })
+      .eq('id', userId)
+      .eq('monthly_tx_count', count)
+      .select('id')
+      .maybeSingle();
+    if (incErr) throw incErr;
+    if (incRow) return 'ok';
+  }
+
+  throw new Error('No se pudo actualizar el contador de transacciones. Intenta de nuevo.');
+}
+
+/** Inserta la fila en `transactions`. El cupo mensual se aplica antes con `checkAndIncrementTxCount`. */
 export async function insertTransaction(
   userId: string,
   type: TxType,

@@ -1,0 +1,8 @@
+{
+  "name": "registro-financiero",
+  "private": true,
+  "description": "Raíz del monorepo; scripts que delegan en backend/ o frontend/.",
+  "scripts": {
+    "verify-schema": "npm --prefix backend run verify-schema"
+  }
+}

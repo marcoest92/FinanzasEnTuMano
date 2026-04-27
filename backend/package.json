@@ -9,7 +9,8 @@
     "build": "tsc",
     "try-parse": "tsx scripts/try-parse.ts",
     "db:migrate-users-plan": "tsx scripts/apply-users-plan-migration.ts",
-    "db:migrate": "npm run db:migrate-users-plan"
+    "db:migrate": "npm run db:migrate-users-plan",
+    "verify-schema": "tsx src/verify-schema.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

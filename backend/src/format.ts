@@ -22,3 +22,10 @@ export function dateYyyyMmDdBogota(unixSeconds: number): string {
   const d = new Date(unixSeconds * 1000);
   return d.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 }
+
+/** Primer día del mes calendario actual en America/Bogota, formato YYYY-MM-DD. */
+export function firstDayOfCurrentMonthBogota(nowUnixSeconds: number = Math.floor(Date.now() / 1000)): string {
+  const today = dateYyyyMmDdBogota(nowUnixSeconds);
+  const [y, m] = today.split('-');
+  return `${y}-${m}-01`;
+}
