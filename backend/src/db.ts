@@ -57,6 +57,72 @@ export async function getMonthSummary(
   return { totalIncome, totalExpense };
 }
 
+export async function getWeeklySummary(
+  userId: string,
+  weekStart: string,
+  weekEnd: string
+): Promise<{ totalIncome: number; totalExpense: number }> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from('transactions')
+    .select('type, amount')
+    .eq('user_id', userId)
+    .gte('date', weekStart)
+    .lte('date', weekEnd);
+  if (error) throw error;
+
+  let totalIncome = 0;
+  let totalExpense = 0;
+  for (const row of data ?? []) {
+    const amt = Number(row.amount);
+    if (!Number.isFinite(amt)) continue;
+    if (row.type === 'income') totalIncome += amt;
+    else if (row.type === 'expense') totalExpense += amt;
+  }
+  return { totalIncome, totalExpense };
+}
+
+export async function getCategorySummary(
+  userId: string,
+  dateFrom: string,
+  dateTo: string
+): Promise<{ category: string; total: number }[]> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from('transactions')
+    .select('category, amount')
+    .eq('user_id', userId)
+    .eq('type', 'expense')
+    .gte('date', dateFrom)
+    .lte('date', dateTo);
+  if (error) throw error;
+
+  const map = new Map<string, number>();
+  for (const row of data ?? []) {
+    const c = String(row.category);
+    const a = Number(row.amount);
+    if (!Number.isFinite(a)) continue;
+    map.set(c, (map.get(c) ?? 0) + a);
+  }
+  return [...map.entries()]
+    .map(([category, total]) => ({ category, total }))
+    .sort((a, b) => b.total - a.total);
+}
+
+export async function getAllActiveUsers(): Promise<{ id: string; telegram_id: number; plan: string }[]> {
+  const sb = getSupabase();
+  const { data, error } = await sb.from('users').select('id, telegram_id, plan');
+  if (error) throw error;
+  return (data ?? []).map((r) => {
+    const row = r as Record<string, unknown>;
+    return {
+      id: String(row.id),
+      telegram_id: Number(row.telegram_id),
+      plan: String(row.plan),
+    };
+  });
+}
+
 export interface UserRow {
   id: string;
   telegram_id: number;

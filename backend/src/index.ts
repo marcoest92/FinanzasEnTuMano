@@ -12,8 +12,11 @@ import {
   handleConfirmNo,
   handleConfirmEdit,
 } from './messageHandler.js';
+import { sendMonthlySummaries, sendWeeklySummaries } from './summaryScheduler.js';
 
 const bot = new Telegraf(config.telegramBotToken());
+
+const CRON_SECRET = process.env.CRON_SECRET ?? '';
 
 bot.on('text', async (ctx) => {
   const t = ctx.message.text;
@@ -82,6 +85,26 @@ app.get('/', async () => ({
 }));
 
 app.get('/health', async () => ({ ok: true }));
+
+app.post('/cron/weekly', async (request, reply) => {
+  const raw = request.headers['x-cron-secret'];
+  const auth = Array.isArray(raw) ? raw[0] : raw;
+  if (CRON_SECRET && auth !== CRON_SECRET) {
+    return reply.code(401).send({ error: 'Unauthorized' });
+  }
+  sendWeeklySummaries(bot).catch((e) => app.log.error(e));
+  return reply.code(200).send({ ok: true });
+});
+
+app.post('/cron/monthly', async (request, reply) => {
+  const raw = request.headers['x-cron-secret'];
+  const auth = Array.isArray(raw) ? raw[0] : raw;
+  if (CRON_SECRET && auth !== CRON_SECRET) {
+    return reply.code(401).send({ error: 'Unauthorized' });
+  }
+  sendMonthlySummaries(bot).catch((e) => app.log.error(e));
+  return reply.code(200).send({ ok: true });
+});
 
 app.post(config.webhookPath, async (request, reply) => {
   const secret = config.telegramWebhookSecret;
