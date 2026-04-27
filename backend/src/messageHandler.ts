@@ -35,6 +35,11 @@ function displayFirstName(ctx: Context): string {
   return escapeHtml(raw && raw.length > 0 ? raw : 'ahí');
 }
 
+function userDashboardPublicUrl(user: UserRow): string {
+  const base = config.dashboardPublicUrl();
+  return `${base}/#/dashboard/${user.dashboard_token}`;
+}
+
 async function replyNewUserWelcome(ctx: Context): Promise<void> {
   const fn = displayFirstName(ctx);
   const text = `👋 ¡Hola ${fn}! Soy tu asistente de finanzas.
@@ -70,6 +75,7 @@ ${balLine}
   await ctx.reply(html, {
     parse_mode: 'HTML',
     ...Markup.inlineKeyboard([
+      [Markup.button.url('Dashboard', userDashboardPublicUrl(user))],
       [Markup.button.callback('📊 Ver detalle del mes', 'show_summary')],
       [Markup.button.callback('❓ Ayuda', 'show_help')],
     ]),
@@ -281,8 +287,7 @@ export async function handleIncomingText(
       return;
     }
     if (raw.startsWith('/dashboard')) {
-      const base = config.dashboardPublicUrl();
-      await ctx.reply(`Tu dashboard: ${base}/#/dashboard/${user.dashboard_token}`);
+      await ctx.reply(`Tu dashboard: ${userDashboardPublicUrl(user)}`);
       return;
     }
   }
