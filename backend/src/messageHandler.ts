@@ -15,6 +15,7 @@ import {
   getMonthSummary,
   getPendingValid,
   insertTransaction,
+  updateUserProfile,
   upsertPending,
   type UserRow,
 } from './db.js';
@@ -185,7 +186,7 @@ function isConfirmationPending(p: PendingPayload): boolean {
 export async function handleConfirmYes(ctx: Context): Promise<void> {
   const from = ctx.from;
   if (!from) return;
-  const { user } = await ensureUser(from.id);
+  const { user } = await ensureUser(from.id, from.first_name ?? null, from.username ?? null);
   const row = await getPendingValid(user.id);
   const pending = row?.payload;
   if (!pending || !isConfirmationPending(pending)) {
@@ -198,7 +199,7 @@ export async function handleConfirmYes(ctx: Context): Promise<void> {
 export async function handleConfirmNo(ctx: Context): Promise<void> {
   const from = ctx.from;
   if (!from) return;
-  const { user } = await ensureUser(from.id);
+  const { user } = await ensureUser(from.id, from.first_name ?? null, from.username ?? null);
   const row = await getPendingValid(user.id);
   const pending = row?.payload;
   if (!pending || !isConfirmationPending(pending)) {
@@ -211,7 +212,7 @@ export async function handleConfirmNo(ctx: Context): Promise<void> {
 export async function handleConfirmEdit(ctx: Context): Promise<void> {
   const from = ctx.from;
   if (!from) return;
-  const { user } = await ensureUser(from.id);
+  const { user } = await ensureUser(from.id, from.first_name ?? null, from.username ?? null);
   const row = await getPendingValid(user.id);
   const pending = row?.payload;
   if (!pending || !isConfirmationPending(pending)) {
@@ -224,7 +225,7 @@ export async function handleConfirmEdit(ctx: Context): Promise<void> {
 export async function handleClarifyExpense(ctx: Context): Promise<void> {
   const from = ctx.from;
   if (!from) return;
-  const { user } = await ensureUser(from.id);
+  const { user } = await ensureUser(from.id, from.first_name ?? null, from.username ?? null);
   const row = await getPendingValid(user.id);
   const pending = row?.payload;
   if (!pending?.awaiting_clarification || pending.amount == null) {
@@ -243,7 +244,7 @@ export async function handleClarifyExpense(ctx: Context): Promise<void> {
 export async function handleClarifyIncome(ctx: Context): Promise<void> {
   const from = ctx.from;
   if (!from) return;
-  const { user } = await ensureUser(from.id);
+  const { user } = await ensureUser(from.id, from.first_name ?? null, from.username ?? null);
   const row = await getPendingValid(user.id);
   const pending = row?.payload;
   if (!pending?.awaiting_clarification || pending.amount == null) {
@@ -304,11 +305,13 @@ export async function handleIncomingText(
     isNew = preloaded.isNew ?? false;
     if (!preloaded.skipWelcome) await replyNewUserWelcome(ctx);
   } else {
-    const ensured = await ensureUser(from.id);
+    const ensured = await ensureUser(from.id, from.first_name ?? null, from.username ?? null);
     user = ensured.user;
     isNew = ensured.isNew;
     if (isNew) await replyNewUserWelcome(ctx);
   }
+
+  await updateUserProfile(user.id, from.first_name ?? null, from.username ?? null);
 
   const raw = text.trim();
   const msgDate =
@@ -482,7 +485,7 @@ export async function handleVoice(ctx: Context): Promise<void> {
     return;
   }
 
-  const ensured = await ensureUser(from.id);
+  const ensured = await ensureUser(from.id, from.first_name ?? null, from.username ?? null);
   if (ensured.isNew) await replyNewUserWelcome(ctx);
   await ctx.reply(VOICE_PROCESSING);
   const fileId = msg.voice.file_id;

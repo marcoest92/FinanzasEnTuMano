@@ -7,7 +7,7 @@ import type { TxType } from './types.js';
 
 /** Columnas devueltas por PostgREST al leer/crear usuario (alineado con schema Supabase). */
 const USER_ROW_SELECT =
-  'id, telegram_id, currency, dashboard_token, created_at, plan, plan_expires_at, monthly_tx_count, monthly_tx_reset_at' as const;
+  'id, telegram_id, currency, dashboard_token, created_at, plan, plan_expires_at, monthly_tx_count, monthly_tx_reset_at, first_name, username' as const;
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -69,6 +69,8 @@ export interface UserRow {
   monthly_tx_count: number;
   /** YYYY-MM-DD (columna date en Postgres). */
   monthly_tx_reset_at: string;
+  first_name: string | null;
+  username: string | null;
 }
 
 export async function findUserByTelegram(telegramId: number): Promise<UserRow | null> {
@@ -82,23 +84,48 @@ export async function findUserByTelegram(telegramId: number): Promise<UserRow | 
   return data as UserRow | null;
 }
 
-export async function createUser(telegramId: number): Promise<UserRow> {
+export async function createUser(
+  telegramId: number,
+  firstName: string | null,
+  username: string | null
+): Promise<UserRow> {
   const dashboard_token = randomBytes(24).toString('hex');
   const sb = getSupabase();
   const { data, error } = await sb
     .from('users')
-    .insert({ telegram_id: telegramId, currency: 'COP', dashboard_token, plan: DEFAULT_USER_PLAN })
+    .insert({
+      telegram_id: telegramId,
+      currency: 'COP',
+      dashboard_token,
+      plan: DEFAULT_USER_PLAN,
+      first_name: firstName,
+      username,
+    })
     .select(USER_ROW_SELECT)
     .single();
   if (error) throw error;
   return data as UserRow;
 }
 
-export async function ensureUser(telegramId: number): Promise<{ user: UserRow; isNew: boolean }> {
+export async function ensureUser(
+  telegramId: number,
+  firstName: string | null,
+  username: string | null
+): Promise<{ user: UserRow; isNew: boolean }> {
   const existing = await findUserByTelegram(telegramId);
   if (existing) return { user: existing, isNew: false };
-  const user = await createUser(telegramId);
+  const user = await createUser(telegramId, firstName, username);
   return { user, isNew: true };
+}
+
+export async function updateUserProfile(
+  userId: string,
+  firstName: string | null,
+  username: string | null
+): Promise<void> {
+  const sb = getSupabase();
+  const { error } = await sb.from('users').update({ first_name: firstName, username }).eq('id', userId);
+  if (error) throw error;
 }
 
 export interface PendingRow {
