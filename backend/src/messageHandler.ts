@@ -415,12 +415,14 @@ export async function handleIncomingText(
   if (localResult && !localResult.needs_clarification && !localResult.is_greeting) {
     const full = toFullPayload(localResult);
     if (full) {
+      console.log('[parser] local:', raw, '→', JSON.stringify(localResult));
       full.awaiting_clarification = false;
       await upsertPending(user.id, full);
       await replyWithConfirmation(ctx, full);
       return;
     }
   }
+  console.log('[parser] openai:', raw);
   const parsed = await parseTransactionText(raw, defaultDate, null);
   if (parsed.is_greeting) {
     if (!isNew) {
