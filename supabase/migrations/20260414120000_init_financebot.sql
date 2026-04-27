@@ -12,7 +12,7 @@ CREATE TABLE public.users (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_users_dashboard_token ON public.users (dashboard_token);
+-- UNIQUE en dashboard_token crea índice implícito; no hace falta idx_users_dashboard_token.
 
 -- Transactions
 CREATE TABLE public.transactions (

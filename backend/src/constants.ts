@@ -1,3 +1,4 @@
+/** Debe coincidir exactamente (mayúsculas, tildes, espacios) con `transactions_category_check` en Supabase. */
 export const FIXED_CATEGORIES = [
   'Arriendo o cuota de vivienda',
   'Servicios públicos',

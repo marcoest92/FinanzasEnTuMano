@@ -12,7 +12,10 @@ const CORRECTION_FOLDED = [
 
 type CategoryRule = { category: (typeof FIXED_CATEGORIES)[number]; keys: string[] };
 
-/** Orden: frases largas / categorías más específicas antes que palabras genéricas (ej. cuota crédito vs cuota). */
+/**
+ * Cada `category` es un literal de FIXED_CATEGORIES (= CHECK en `transactions.category`).
+ * Orden: frases largas / categorías más específicas antes que palabras genéricas (ej. cuota crédito vs cuota).
+ */
 const CATEGORY_KEYWORDS: CategoryRule[] = [
   {
     category: 'Alimentación',

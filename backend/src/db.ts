@@ -5,6 +5,10 @@ import type { PendingPayload, UserPlan } from './types.js';
 import { DEFAULT_USER_PLAN } from './types.js';
 import type { TxType } from './types.js';
 
+/** Columnas devueltas por PostgREST al leer/crear usuario (alineado con schema Supabase). */
+const USER_ROW_SELECT =
+  'id, telegram_id, currency, dashboard_token, created_at, plan, plan_expires_at, monthly_tx_count, monthly_tx_reset_at' as const;
+
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
@@ -59,14 +63,19 @@ export interface UserRow {
   currency: string;
   dashboard_token: string;
   created_at: string;
-  plan: UserPlan;
+  /** Tier en DB (text); valores conocidos en `UserPlan`. */
+  plan: string;
+  plan_expires_at: string | null;
+  monthly_tx_count: number;
+  /** YYYY-MM-DD (columna date en Postgres). */
+  monthly_tx_reset_at: string;
 }
 
 export async function findUserByTelegram(telegramId: number): Promise<UserRow | null> {
   const sb = getSupabase();
   const { data, error } = await sb
     .from('users')
-    .select('id, telegram_id, currency, dashboard_token, created_at, plan')
+    .select(USER_ROW_SELECT)
     .eq('telegram_id', telegramId)
     .maybeSingle();
   if (error) throw error;
@@ -79,7 +88,7 @@ export async function createUser(telegramId: number): Promise<UserRow> {
   const { data, error } = await sb
     .from('users')
     .insert({ telegram_id: telegramId, currency: 'COP', dashboard_token, plan: DEFAULT_USER_PLAN })
-    .select('id, telegram_id, currency, dashboard_token, created_at, plan')
+    .select(USER_ROW_SELECT)
     .single();
   if (error) throw error;
   return data as UserRow;
