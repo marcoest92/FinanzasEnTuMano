@@ -17,6 +17,7 @@ import {
   type UserRow,
 } from './db.js';
 import { formatCop, formatDateDdMmYyyy, parseLocalDate, dateYyyyMmDdBogota } from './format.js';
+import { tryLocalParse } from './localParser.js';
 import { parseTransactionText, type ParsedTransaction } from './openai/parseTransaction.js';
 import {
   classifyPendingFollowup,
@@ -396,6 +397,16 @@ export async function handleIncomingText(
   }
 
   // --- Sin pendiente: nuevo parseo
+  const localResult = tryLocalParse(raw, defaultDate);
+  if (localResult && !localResult.needs_clarification && !localResult.is_greeting) {
+    const full = toFullPayload(localResult);
+    if (full) {
+      full.awaiting_clarification = false;
+      await upsertPending(user.id, full);
+      await replyWithConfirmation(ctx, full);
+      return;
+    }
+  }
   const parsed = await parseTransactionText(raw, defaultDate, null);
   if (parsed.is_greeting) {
     if (!isNew) {
