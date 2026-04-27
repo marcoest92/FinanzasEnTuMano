@@ -135,8 +135,6 @@ async function replyTypeClarificationPrompt(ctx: Context): Promise<void> {
   await ctx.reply('¿Es un gasto o un ingreso?', typeClarificationInlineKeyboard());
 }
 
-const STRIPE_PAYMENT_LINK = 'https://STRIPE_PAYMENT_LINK';
-
 async function commitPendingTransaction(ctx: Context, user: UserRow, pending: PendingPayload): Promise<void> {
   if (pending.type === undefined || pending.amount === undefined) {
     await ctx.reply('Faltan datos del movimiento. Escribe el gasto o ingreso de nuevo.');
@@ -153,7 +151,7 @@ async function commitPendingTransaction(ctx: Context, user: UserRow, pending: Pe
           '  • Exportar tus datos\n' +
           '  • Categorías personalizadas\n\n' +
           'Solo $9.900 COP/mes 👇',
-        Markup.inlineKeyboard([[Markup.button.url('🚀 Quiero el plan Pro', STRIPE_PAYMENT_LINK)]])
+        Markup.inlineKeyboard([[Markup.button.callback('🚀 Quiero el plan Pro', 'show_pro_info')]])
       );
       await deletePending(user.id);
       return;
