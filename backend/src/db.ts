@@ -183,7 +183,10 @@ export async function checkAndIncrementTxCount(userId: string): Promise<'ok' | '
       .select('plan, plan_expires_at, monthly_tx_count, monthly_tx_reset_at')
       .eq('id', userId)
       .single();
-    if (error || !data) throw error ?? new Error('Usuario no encontrado');
+    if (error || !data) {
+      console.log('[quota] error:', error, !data ? '(sin data)' : '');
+      throw error ?? new Error('Usuario no encontrado');
+    }
     const r = data as Record<string, unknown>;
     return {
       plan: String(r.plan),
@@ -195,6 +198,7 @@ export async function checkAndIncrementTxCount(userId: string): Promise<'ok' | '
 
   for (let attempt = 0; attempt < QUOTA_RETRY_MAX; attempt++) {
     let row = await fetchQuota();
+    console.log(`[quota] attempt ${attempt}, row:`, JSON.stringify(row));
 
     if (row.plan === 'pro') {
       const nowMs = Date.now();
@@ -207,7 +211,10 @@ export async function checkAndIncrementTxCount(userId: string): Promise<'ok' | '
         .from('users')
         .update({ plan: 'free', plan_expires_at: null })
         .eq('id', userId);
-      if (demoteErr) throw demoteErr;
+      if (demoteErr) {
+        console.log('[quota] error:', demoteErr);
+        throw demoteErr;
+      }
       row = await fetchQuota();
     }
 
@@ -227,13 +234,17 @@ export async function checkAndIncrementTxCount(userId: string): Promise<'ok' | '
         .eq('monthly_tx_count', row.monthly_tx_count)
         .select('id')
         .maybeSingle();
-      if (upErr) throw upErr;
+      if (upErr) {
+        console.log('[quota] error:', upErr);
+        throw upErr;
+      }
       if (updated) return 'ok';
       continue;
     }
 
     const count = row.monthly_tx_count;
     if (count >= FREE_MONTHLY_TX_LIMIT) {
+      console.log('[quota] limit_reached, count:', count);
       return 'limit_reached';
     }
 
@@ -244,10 +255,14 @@ export async function checkAndIncrementTxCount(userId: string): Promise<'ok' | '
       .eq('monthly_tx_count', count)
       .select('id')
       .maybeSingle();
-    if (incErr) throw incErr;
+    if (incErr) {
+      console.log('[quota] error:', incErr);
+      throw incErr;
+    }
     if (incRow) return 'ok';
   }
 
+  console.log('[quota] retries exhausted');
   throw new Error('No se pudo actualizar el contador de transacciones. Intenta de nuevo.');
 }
 
