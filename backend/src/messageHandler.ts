@@ -11,6 +11,7 @@ import {
   checkAndIncrementTxCount,
   deletePending,
   ensureUser,
+  findUserByTelegram,
   getMonthSummary,
   getPendingValid,
   insertTransaction,
@@ -26,6 +27,7 @@ import {
 } from './openai/pendingIntent.js';
 import { transcribeOggOrMp3 } from './openai/transcribe.js';
 import { isConfirmYes, isNoOrCancel } from './confirm.js';
+import { isRateLimited } from './rateLimiter.js';
 import type { PendingPayload } from './types.js';
 
 function escapeHtml(s: string): string {
@@ -281,6 +283,19 @@ export async function handleIncomingText(
 ): Promise<void> {
   const from = ctx.from;
   if (!from) return;
+  if (isRateLimited(from.id)) {
+    return;
+  }
+
+  const earlyUser = await findUserByTelegram(from.id);
+  if (earlyUser && earlyUser.plan === 'free' && earlyUser.monthly_tx_count >= 40) {
+    await ctx.reply(
+      '⚠️ Alcanzaste tu límite de 40 registros este mes.\n\n' +
+        'El plan Pro te da registros ilimitados por solo $9.900 COP/mes 👇',
+      Markup.inlineKeyboard([[Markup.button.callback('🚀 Quiero el plan Pro', 'show_pro_info')]])
+    );
+    return;
+  }
 
   let user: UserRow;
   let isNew = false;
@@ -462,6 +477,10 @@ export async function handleVoice(ctx: Context): Promise<void> {
   const from = ctx.from;
   const msg = ctx.message;
   if (!from || !msg || !('voice' in msg) || !msg.voice) return;
+
+  if (isRateLimited(from.id)) {
+    return;
+  }
 
   const ensured = await ensureUser(from.id);
   if (ensured.isNew) await replyNewUserWelcome(ctx);
