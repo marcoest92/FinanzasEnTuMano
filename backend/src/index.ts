@@ -42,9 +42,7 @@ bot.action('show_help', async (ctx) => {
 bot.action('show_pro_info', async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.reply(
-    '💳 Plan Pro — $9.900 COP/mes\n\n' +
-      'Próximamente habilitaremos el pago en línea.\n' +
-      'Por ahora escríbenos a @TU_USUARIO para activarlo manualmente.'
+    '💳 Plan Pro — $9.900 COP/mes\n\nEscríbenos a @FinanzasEnTuManoSupp y te activamos el plan en menos de 24 horas.'
   );
 });
 
