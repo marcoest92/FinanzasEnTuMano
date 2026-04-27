@@ -48,6 +48,8 @@ Escríbeme cualquier gasto o ingreso en lenguaje natural:
   • 'Me pagaron 2 millones'
   • O envíame una nota de voz 🎙️
 
+También tienes un dashboard web para ver resúmenes y movimientos: escribe /dashboard y te envío el enlace.
+
 Empieza cuando quieras.`;
   await ctx.reply(text, { parse_mode: 'HTML' });
 }
