@@ -145,12 +145,7 @@ async function commitPendingTransaction(ctx: Context, user: UserRow, pending: Pe
     const countResult = await checkAndIncrementTxCount(user.id);
     if (countResult === 'limit_reached') {
       await ctx.reply(
-        '⚠️ Alcanzaste tu límite de 40 registros este mes.\n\n' +
-          'Con el plan Pro registras sin límite, además de:\n' +
-          '  • Resumen semanal automático\n' +
-          '  • Exportar tus datos\n' +
-          '  • Categorías personalizadas\n\n' +
-          'Solo $9.900 COP/mes 👇',
+        '⚠️ Alcanzaste tu límite de 40 registros este mes.\n\nEl plan Pro te da registros ilimitados por solo $9.900 COP/mes 👇',
         Markup.inlineKeyboard([[Markup.button.callback('🚀 Quiero el plan Pro', 'show_pro_info')]])
       );
       await deletePending(user.id);
