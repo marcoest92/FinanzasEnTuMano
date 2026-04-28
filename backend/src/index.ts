@@ -87,22 +87,20 @@ app.get('/', async () => ({
 app.get('/health', async () => ({ ok: true }));
 
 app.get('/cron/weekly', async (request, reply) => {
-  const raw = request.headers['x-cron-secret'];
-  const auth = Array.isArray(raw) ? raw[0] : raw;
+  const auth = (request.headers as Record<string, string>)['x-cron-secret'];
   if (CRON_SECRET && auth !== CRON_SECRET) {
     return reply.code(401).send({ error: 'Unauthorized' });
   }
-  sendWeeklySummaries(bot).catch((e) => app.log.error(e));
+  sendWeeklySummaries(bot).catch(e => app.log.error(e));
   return reply.code(200).send({ ok: true });
 });
 
 app.get('/cron/monthly', async (request, reply) => {
-  const raw = request.headers['x-cron-secret'];
-  const auth = Array.isArray(raw) ? raw[0] : raw;
+  const auth = (request.headers as Record<string, string>)['x-cron-secret'];
   if (CRON_SECRET && auth !== CRON_SECRET) {
     return reply.code(401).send({ error: 'Unauthorized' });
   }
-  sendMonthlySummaries(bot).catch((e) => app.log.error(e));
+  sendMonthlySummaries(bot).catch(e => app.log.error(e));
   return reply.code(200).send({ ok: true });
 });
 
