@@ -14,6 +14,6 @@ export const config = {
   webhookPath: process.env.WEBHOOK_PATH ?? '/webhook',
   port: Number(process.env.PORT ?? 3000),
   telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET,
-  /** Secreto opcional para POST /cron/weekly y /cron/monthly (header x-cron-secret). */
+  /** Secreto opcional para GET /cron/weekly y /cron/monthly (header x-cron-secret). */
   cronSecret: process.env.CRON_SECRET ?? '',
 };

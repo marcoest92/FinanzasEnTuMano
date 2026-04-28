@@ -86,7 +86,7 @@ app.get('/', async () => ({
 
 app.get('/health', async () => ({ ok: true }));
 
-app.post('/cron/weekly', async (request, reply) => {
+app.get('/cron/weekly', async (request, reply) => {
   const raw = request.headers['x-cron-secret'];
   const auth = Array.isArray(raw) ? raw[0] : raw;
   if (CRON_SECRET && auth !== CRON_SECRET) {
@@ -96,7 +96,7 @@ app.post('/cron/weekly', async (request, reply) => {
   return reply.code(200).send({ ok: true });
 });
 
-app.post('/cron/monthly', async (request, reply) => {
+app.get('/cron/monthly', async (request, reply) => {
   const raw = request.headers['x-cron-secret'];
   const auth = Array.isArray(raw) ? raw[0] : raw;
   if (CRON_SECRET && auth !== CRON_SECRET) {
