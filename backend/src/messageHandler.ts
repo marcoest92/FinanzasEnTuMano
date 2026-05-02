@@ -123,12 +123,12 @@ function remindersListHtml(reminders: Reminder[]): string {
 }
 
 function remindersActionsKeyboard(reminders: Reminder[]) {
-  return Markup.inlineKeyboard(
-    reminders.map((r) => [
-      Markup.button.callback('✏️ Editar', `edit_reminder_existing:${r.id}`),
-      Markup.button.callback('🗑️ Eliminar', `delete_reminder:${r.id}`),
-    ])
-  );
+  const rows = reminders.map((r) => [
+    Markup.button.callback('✏️ Editar', `edit_reminder_existing:${r.id}`),
+    Markup.button.callback('🗑️ Eliminar', `delete_reminder:${r.id}`),
+  ]);
+  rows.push([Markup.button.callback('➕ Nuevo recordatorio', 'reminder_new')]);
+  return Markup.inlineKeyboard(rows);
 }
 
 async function replyReturningUserHome(ctx: Context, user: UserRow, msgDateUnix: number): Promise<void> {
@@ -192,14 +192,19 @@ export async function handleWelcomeRecordatorios(ctx: Context): Promise<void> {
   }
   const reminders = await getReminders(user.id);
   const text = remindersListHtml(reminders);
-  if (reminders.length === 0) {
-    await ctx.reply(text, { parse_mode: 'HTML' });
-    return;
-  }
   await ctx.reply(text, {
     parse_mode: 'HTML',
     ...remindersActionsKeyboard(reminders),
   });
+}
+
+export async function handleReminderNew(ctx: Context): Promise<void> {
+  const msg = '✏️ Describe el nuevo recordatorio.\nEj: Arriendo el 5 o Servicios el 15';
+  try {
+    await ctx.editMessageText(msg, { reply_markup: { inline_keyboard: [] } });
+  } catch {
+    await ctx.reply(msg);
+  }
 }
 
 export async function handleEditReminderExisting(ctx: Context, reminderId: string): Promise<void> {
@@ -253,22 +258,11 @@ export async function handleDeleteReminder(ctx: Context, reminderId: string): Pr
   await deleteReminder(id, user.id);
   const reminders = await getReminders(user.id);
   const text = remindersListHtml(reminders);
-  const emptyKeyboard = { reply_markup: { inline_keyboard: [] } };
+  const kb = remindersActionsKeyboard(reminders);
   try {
-    if (reminders.length === 0) {
-      await ctx.editMessageText(text, { parse_mode: 'HTML', ...emptyKeyboard });
-    } else {
-      await ctx.editMessageText(text, {
-        parse_mode: 'HTML',
-        ...remindersActionsKeyboard(reminders),
-      });
-    }
+    await ctx.editMessageText(text, { parse_mode: 'HTML', ...kb });
   } catch {
-    if (reminders.length === 0) {
-      await ctx.reply(text, { parse_mode: 'HTML' });
-    } else {
-      await ctx.reply(text, { parse_mode: 'HTML', ...remindersActionsKeyboard(reminders) });
-    }
+    await ctx.reply(text, { parse_mode: 'HTML', ...kb });
   }
 }
 

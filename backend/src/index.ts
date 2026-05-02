@@ -20,6 +20,7 @@ import {
   handleWelcomeRecordatorios,
   handleDeleteReminder,
   handleEditReminderExisting,
+  handleReminderNew,
 } from './messageHandler.js';
 import { sendMonthlySummaries, sendWeeklySummaries } from './summaryScheduler.js';
 
@@ -67,6 +68,11 @@ bot.action(/^delete_reminder:(.+)$/, async (ctx) => {
 bot.action(/^edit_reminder_existing:(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   await handleEditReminderExisting(ctx, ctx.match[1]!);
+});
+
+bot.action('reminder_new', async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleReminderNew(ctx);
 });
 
 bot.action('show_help', async (ctx) => {
