@@ -39,7 +39,7 @@ const CATEGORY_KEYWORDS: Array<{ keywords: string[]; category: Category }> = [
     category: 'Alimentación',
   },
   {
-    keywords: ['medico', 'medicina', 'salud', 'farmacia', 'clinica', 'hospital', 'eps', 'cita'],
+    keywords: ['medico', 'medicina', 'salud', 'farmacia', 'clinica', 'hospital', 'eps', 'cita', 'gym', 'gimnasio'],
     category: 'Salud',
   },
   {
