@@ -11,10 +11,12 @@ import {
   checkAndIncrementTxCount,
   countReminders,
   createReminder,
+  deleteReminder,
   deletePending,
   ensureUser,
   findUserByTelegram,
   getMonthSummary,
+  getReminders,
   getPendingValid,
   insertTransaction,
   updateUserProfile,
@@ -40,7 +42,7 @@ import {
   buildFrequencyCallbackData,
   compactJsonToReminderIntent,
 } from './reminderFlow.js';
-import type { PendingPayload, ReminderIntent } from './types.js';
+import type { PendingPayload, Reminder, ReminderIntent } from './types.js';
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -70,18 +72,54 @@ Empieza cuando quieras.`;
   await ctx.reply(text, { parse_mode: 'HTML' });
 }
 
-async function replyReturningUserHome(ctx: Context, user: UserRow, msgDateUnix: number): Promise<void> {
+async function monthSummaryStatsHtml(
+  userId: string,
+  msgDateUnix: number
+): Promise<{ inc: string; exp: string; balLine: string }> {
   const todayStr = dateYyyyMmDdBogota(msgDateUnix);
   const [y, m] = todayStr.split('-').map(Number);
-  const { totalIncome, totalExpense } = await getMonthSummary(user.id, y, m, msgDateUnix);
+  const { totalIncome, totalExpense } = await getMonthSummary(userId, y, m, msgDateUnix);
   const balance = totalIncome - totalExpense;
-  const fn = displayFirstName(ctx);
   const inc = escapeHtml(formatCop(totalIncome));
   const exp = escapeHtml(formatCop(totalExpense));
   const balLine =
     balance >= 0
       ? `💰 Balance: +${escapeHtml(formatCop(balance))}`
       : `💰 Balance: -${escapeHtml(formatCop(Math.abs(balance)))}`;
+  return { inc, exp, balLine };
+}
+
+function remindersListHtml(reminders: Reminder[]): string {
+  if (reminders.length === 0) {
+    return (
+      '🔔 <b>Tus recordatorios</b>\n\n' +
+      'No tienes recordatorios guardados.\n\n' +
+      'Crea uno escribiendo por ejemplo: <code>Arriendo el 5</code> o <code>Recordatorio Netflix el 12</code>.'
+    );
+  }
+  const blocks = reminders.map((r, i) => {
+    const nm = escapeHtml(r.name);
+    const freq = r.recurring ? '🔁 Mensual' : '1️⃣ Una vez';
+    const cat =
+      r.category != null && r.category.length > 0 ? escapeHtml(r.category) : 'Sin categoría';
+    const amt =
+      r.amount != null && Number.isFinite(Number(r.amount))
+        ? ` · ${escapeHtml(formatCop(Number(r.amount)))}`
+        : '';
+    return `${i + 1}. <b>${nm}</b>${amt}\n   📅 Día ${r.day_of_month} · ${freq}\n   🏷️ ${cat}`;
+  });
+  return `🔔 <b>Tus recordatorios</b>\n\n${blocks.join('\n\n')}`;
+}
+
+function remindersDeleteInlineKeyboard(reminders: Reminder[]) {
+  return Markup.inlineKeyboard(
+    reminders.map((r) => [Markup.button.callback('🗑️ Eliminar', `delete_reminder:${r.id}`)])
+  );
+}
+
+async function replyReturningUserHome(ctx: Context, user: UserRow, msgDateUnix: number): Promise<void> {
+  const { inc, exp, balLine } = await monthSummaryStatsHtml(user.id, msgDateUnix);
+  const fn = displayFirstName(ctx);
   const html = `👋 ¡Hola ${fn}!
 
 Este mes llevas:
@@ -93,11 +131,102 @@ ${balLine}
   await ctx.reply(html, {
     parse_mode: 'HTML',
     ...Markup.inlineKeyboard([
-      [Markup.button.url('Dashboard', userDashboardPublicUrl(user))],
-      [Markup.button.callback('📊 Ver detalle del mes', 'show_summary')],
-      [Markup.button.callback('❓ Ayuda', 'show_help')],
+      [
+        Markup.button.callback('📊 Dashboard', 'welcome_dashboard'),
+        Markup.button.callback('📈 Resumen', 'welcome_resumen'),
+        Markup.button.callback('🔔 Recordatorios', 'welcome_recordatorios'),
+      ],
     ]),
   });
+}
+
+export async function handleWelcomeDashboard(ctx: Context): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const user = await findUserByTelegram(from.id);
+  if (!user) {
+    await ctx.reply('No encontré tu cuenta. Escribe /start.');
+    return;
+  }
+  await ctx.reply(`Tu dashboard: ${userDashboardPublicUrl(user)}`);
+}
+
+export async function handleWelcomeResumen(ctx: Context): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const user = await findUserByTelegram(from.id);
+  if (!user) {
+    await ctx.reply('No encontré tu cuenta. Escribe /start.');
+    return;
+  }
+  const msgDate =
+    ctx.callbackQuery?.message && 'date' in ctx.callbackQuery.message
+      ? ctx.callbackQuery.message.date
+      : Math.floor(Date.now() / 1000);
+  const { inc, exp, balLine } = await monthSummaryStatsHtml(user.id, msgDate);
+  const text = `📈 <b>Resumen de este mes</b>\n\n📥 Ingresos: ${inc}\n📤 Gastos: ${exp}\n${balLine}`;
+  await ctx.reply(text, { parse_mode: 'HTML' });
+}
+
+export async function handleWelcomeRecordatorios(ctx: Context): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const user = await findUserByTelegram(from.id);
+  if (!user) {
+    await ctx.reply('No encontré tu cuenta. Escribe /start.');
+    return;
+  }
+  const reminders = await getReminders(user.id);
+  const text = remindersListHtml(reminders);
+  if (reminders.length === 0) {
+    await ctx.reply(text, { parse_mode: 'HTML' });
+    return;
+  }
+  await ctx.reply(text, {
+    parse_mode: 'HTML',
+    ...remindersDeleteInlineKeyboard(reminders),
+  });
+}
+
+export async function handleDeleteReminder(ctx: Context, reminderId: string): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const user = await findUserByTelegram(from.id);
+  if (!user) {
+    await ctx.reply('No encontré tu cuenta. Escribe /start.');
+    return;
+  }
+  const id = reminderId.trim();
+  if (!id) {
+    await ctx.reply('No tienes permiso para eliminar este recordatorio.');
+    return;
+  }
+  const before = await getReminders(user.id);
+  const owns = before.some((r) => r.id === id);
+  if (!owns) {
+    await ctx.reply('No tienes permiso para eliminar este recordatorio.');
+    return;
+  }
+  await deleteReminder(id, user.id);
+  const reminders = await getReminders(user.id);
+  const text = remindersListHtml(reminders);
+  const emptyKeyboard = { reply_markup: { inline_keyboard: [] } };
+  try {
+    if (reminders.length === 0) {
+      await ctx.editMessageText(text, { parse_mode: 'HTML', ...emptyKeyboard });
+    } else {
+      await ctx.editMessageText(text, {
+        parse_mode: 'HTML',
+        ...remindersDeleteInlineKeyboard(reminders),
+      });
+    }
+  } catch {
+    if (reminders.length === 0) {
+      await ctx.reply(text, { parse_mode: 'HTML' });
+    } else {
+      await ctx.reply(text, { parse_mode: 'HTML', ...remindersDeleteInlineKeyboard(reminders) });
+    }
+  }
 }
 
 function pendingShortSummary(p: PendingPayload): string {

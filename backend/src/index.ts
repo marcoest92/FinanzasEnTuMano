@@ -15,6 +15,10 @@ import {
   handleEditReminder,
   handleCancelReminder,
   handleReminderFrequencyCallback,
+  handleWelcomeDashboard,
+  handleWelcomeResumen,
+  handleWelcomeRecordatorios,
+  handleDeleteReminder,
 } from './messageHandler.js';
 import { sendMonthlySummaries, sendWeeklySummaries } from './summaryScheduler.js';
 
@@ -37,6 +41,26 @@ bot.action('show_summary', async (ctx) => {
   await ctx.reply(
     'Próximamente podrás ver el detalle completo aquí. Por ahora escribe /dashboard para ver tu resumen web.'
   );
+});
+
+bot.action('welcome_dashboard', async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleWelcomeDashboard(ctx);
+});
+
+bot.action('welcome_resumen', async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleWelcomeResumen(ctx);
+});
+
+bot.action('welcome_recordatorios', async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleWelcomeRecordatorios(ctx);
+});
+
+bot.action(/^delete_reminder:(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleDeleteReminder(ctx, ctx.match[1]!);
 });
 
 bot.action('show_help', async (ctx) => {
