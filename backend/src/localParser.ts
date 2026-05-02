@@ -1,5 +1,6 @@
 import { DEFAULT_CATEGORY, FIXED_CATEGORIES } from './constants.js';
 import type { ParsedTransaction } from './openai/parseTransaction.js';
+import type { ReminderIntent } from './types.js';
 
 const CORRECTION_FOLDED = [
   'en realidad',
@@ -276,17 +277,90 @@ function hasLetter(s: string): boolean {
   return /\p{L}/u.test(s);
 }
 
+function parseDayOfMonth1To31(s: string): number | null {
+  const n = Number.parseInt(s, 10);
+  if (!Number.isFinite(n) || n < 1 || n > 31) return null;
+  return n;
+}
+
+/** Quita sufijos "por …" (monto) del nombre del recordatorio. */
+function stripTrailingPorClause(s: string): string {
+  return s.replace(/\s+por\b[\s\S]*$/iu, '').trim();
+}
+
+/** Limpia el nombre: sin palabras clave de recordatorio, sin dobles espacios. */
+function cleanReminderName(raw: string): string {
+  let n = stripTrailingPorClause(raw);
+  n = n
+    .replace(/\brecordatorio\b/giu, ' ')
+    .replace(/\brecordarme\b/giu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return n.slice(0, 300);
+}
+
 /**
- * Intenta extraer un movimiento obvio sin OpenAI. Devuelve null si no hay certeza.
+ * Detecta recordatorio mensual: palabra clave + texto + "el" + día, o texto + "el" + día (pago recurrente).
  */
-export function tryLocalParse(text: string, defaultDate: string): ParsedTransaction | null {
+function tryLocalReminderIntent(text: string): ReminderIntent | null {
   const t = text.trim();
-  if (!t) return null;
-  if (t.includes('?')) return null;
-  if (wordCount(t) > 8) return null;
+  if (!t || t.includes('?')) return null;
 
   const folded = fold(t);
   if (hasCorrectionCue(folded)) return null;
+
+  const dayElRest = /^(.+?)\s+el\s+(\d{1,2})\b(?:\s+por\b[\s\S]*)?$/iu;
+  const hasKeyword = /\brecordatorio\b/u.test(folded) || /\brecordarme\b/u.test(folded);
+
+  let subject: string;
+  let dayStr: string;
+
+  if (hasKeyword) {
+    const afterKw = t.replace(/^\s*(recordatorio|recordarme)\s+/iu, '').trim();
+    const m = afterKw.match(dayElRest);
+    if (!m) return null;
+    subject = m[1]!.trim();
+    dayStr = m[2]!;
+  } else {
+    if (containsIncomeKeyword(folded)) return null;
+    const m = t.match(dayElRest);
+    if (!m) return null;
+    subject = m[1]!.trim();
+    dayStr = m[2]!;
+  }
+
+  const day = parseDayOfMonth1To31(dayStr);
+  if (day === null) return null;
+
+  const name = cleanReminderName(subject);
+  if (!name || !hasLetter(name)) return null;
+
+  return { intent: 'reminder', name, day_of_month: day, category: null };
+}
+
+export type LocalParseResult = ReminderIntent | ParsedTransaction | null;
+
+export function isLocalReminderIntent(r: LocalParseResult): r is ReminderIntent {
+  return r != null && 'intent' in r && r.intent === 'reminder';
+}
+
+/**
+ * Intenta extraer un movimiento obvio sin OpenAI. Devuelve null si no hay certeza.
+ */
+export function tryLocalParse(text: string, defaultDate: string): LocalParseResult {
+  const t = text.trim();
+  if (!t) return null;
+  if (t.includes('?')) return null;
+
+  const foldedEarly = fold(t);
+  if (hasCorrectionCue(foldedEarly)) return null;
+
+  const reminder = tryLocalReminderIntent(t);
+  if (reminder) return reminder;
+
+  if (wordCount(t) > 8) return null;
+
+  const folded = foldedEarly;
 
   const candidates = collectAmountCandidates(t);
   const single = pickSingleAmountSpan(candidates);

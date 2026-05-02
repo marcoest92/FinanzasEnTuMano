@@ -11,6 +11,10 @@ import {
   handleConfirmYes,
   handleConfirmNo,
   handleConfirmEdit,
+  handleConfirmReminderCallback,
+  handleEditReminder,
+  handleCancelReminder,
+  handleReminderFrequencyCallback,
 } from './messageHandler.js';
 import { sendMonthlySummaries, sendWeeklySummaries } from './summaryScheduler.js';
 
@@ -57,6 +61,27 @@ bot.action('clarify_expense', async (ctx) => {
 bot.action('clarify_income', async (ctx) => {
   await ctx.answerCbQuery();
   await handleClarifyIncome(ctx);
+});
+
+bot.action(/^confirm_reminder(?::(.+))?$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleConfirmReminderCallback(ctx, ctx.match[1] ?? null);
+});
+
+bot.action('edit_reminder', async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleEditReminder(ctx);
+});
+
+bot.action('cancel_reminder', async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleCancelReminder(ctx);
+});
+
+bot.action(/^reminder_freq:(recurring|once)(?::(.+))?$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const freq = ctx.match[1] as 'recurring' | 'once';
+  await handleReminderFrequencyCallback(ctx, freq, ctx.match[2] ?? null);
 });
 
 bot.action('confirm_yes', async (ctx) => {

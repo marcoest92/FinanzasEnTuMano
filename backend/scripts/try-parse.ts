@@ -19,6 +19,11 @@ const main = async (): Promise<void> => {
   const result = await parseTransactionText(text, defaultDate, null);
   console.log('--- JSON parseado ---');
   console.log(JSON.stringify(result, null, 2));
+  if (result.intent === 'reminder') {
+    console.log('\n--- Recordatorio ---');
+    console.log(`Día ${result.day_of_month}: ${result.name}`);
+    return;
+  }
   if (result.is_greeting) {
     console.log('\n--- Texto que enviaría el bot (saludo) ---');
     console.log(ASSISTANT_INTRO_MESSAGE);

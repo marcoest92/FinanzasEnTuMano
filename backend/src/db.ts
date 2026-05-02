@@ -1,13 +1,46 @@
 import { randomBytes } from 'node:crypto';
 import { getSupabase } from './supabase.js';
 import { dateYyyyMmDdBogota, firstDayOfCurrentMonthBogota } from './format.js';
-import type { PendingPayload, UserPlan } from './types.js';
+import type { PendingPayload, Reminder, ReminderLog, UserPlan } from './types.js';
 import { DEFAULT_USER_PLAN } from './types.js';
 import type { TxType } from './types.js';
 
 /** Columnas devueltas por PostgREST al leer/crear usuario (alineado con schema Supabase). */
 const USER_ROW_SELECT =
   'id, telegram_id, currency, dashboard_token, created_at, plan, plan_expires_at, monthly_tx_count, monthly_tx_reset_at, first_name, username' as const;
+
+const REMINDER_ROW_SELECT =
+  'id, user_id, name, day_of_month, amount, category, recurring, created_at' as const;
+
+const REMINDER_LOG_ROW_SELECT =
+  'id, reminder_id, user_id, year_month, paid, paid_at, transaction_id, created_at' as const;
+
+function mapReminderRow(r: Record<string, unknown>): Reminder {
+  return {
+    id: String(r.id),
+    user_id: String(r.user_id),
+    name: String(r.name),
+    day_of_month: Number(r.day_of_month),
+    amount: r.amount === null || r.amount === undefined ? null : Number(r.amount),
+    category: r.category === null || r.category === undefined ? null : String(r.category),
+    recurring: Boolean(r.recurring),
+    created_at: String(r.created_at),
+  };
+}
+
+function mapReminderLogRow(r: Record<string, unknown>): ReminderLog {
+  return {
+    id: String(r.id),
+    reminder_id: String(r.reminder_id),
+    user_id: String(r.user_id),
+    year_month: String(r.year_month),
+    paid: Boolean(r.paid),
+    paid_at: r.paid_at === null || r.paid_at === undefined ? null : String(r.paid_at),
+    transaction_id:
+      r.transaction_id === null || r.transaction_id === undefined ? null : String(r.transaction_id),
+    created_at: String(r.created_at),
+  };
+}
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -362,5 +395,122 @@ export async function insertTransaction(
     description,
     date: dateYyyyMmDd,
   });
+  if (error) throw error;
+}
+
+export async function getReminders(userId: string): Promise<Reminder[]> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from('reminders')
+    .select(REMINDER_ROW_SELECT)
+    .eq('user_id', userId)
+    .order('day_of_month', { ascending: true })
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((row) => mapReminderRow(row as Record<string, unknown>));
+}
+
+export async function createReminder(data: Omit<Reminder, 'id' | 'created_at'>): Promise<Reminder> {
+  const sb = getSupabase();
+  const { data: row, error } = await sb
+    .from('reminders')
+    .insert({
+      user_id: data.user_id,
+      name: data.name,
+      day_of_month: data.day_of_month,
+      amount: data.amount,
+      category: data.category,
+      recurring: data.recurring,
+    })
+    .select(REMINDER_ROW_SELECT)
+    .single();
+  if (error) throw error;
+  return mapReminderRow(row as Record<string, unknown>);
+}
+
+export async function deleteReminder(reminderId: string, userId: string): Promise<void> {
+  const sb = getSupabase();
+  const { error } = await sb.from('reminders').delete().eq('id', reminderId).eq('user_id', userId);
+  if (error) throw error;
+}
+
+export async function countReminders(userId: string): Promise<number> {
+  const sb = getSupabase();
+  const { count, error } = await sb
+    .from('reminders')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+type ReminderWithUsersJoin = Record<string, unknown> & {
+  users?: { telegram_id?: number | string } | { telegram_id?: number | string }[] | null;
+};
+
+export async function getRemindersByDay(
+  dayOfMonth: number
+): Promise<(Reminder & { telegram_id: string })[]> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from('reminders')
+    .select(`${REMINDER_ROW_SELECT}, users!inner(telegram_id)`)
+    .eq('day_of_month', dayOfMonth);
+  if (error) throw error;
+
+  const out: (Reminder & { telegram_id: string })[] = [];
+  for (const raw of data ?? []) {
+    const row = raw as ReminderWithUsersJoin;
+    const u = row.users;
+    const nested = Array.isArray(u) ? u[0] : u;
+    const tg = nested?.telegram_id;
+    if (tg === undefined || tg === null) continue;
+    const { users: _u, ...rest } = row;
+    out.push({
+      ...mapReminderRow(rest as Record<string, unknown>),
+      telegram_id: String(tg),
+    });
+  }
+  return out;
+}
+
+export async function getReminderLog(reminderId: string, yearMonth: string): Promise<ReminderLog | null> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from('reminder_logs')
+    .select(REMINDER_LOG_ROW_SELECT)
+    .eq('reminder_id', reminderId)
+    .eq('year_month', yearMonth)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return mapReminderLogRow(data as Record<string, unknown>);
+}
+
+export async function upsertReminderLog(
+  data: Partial<ReminderLog> & { reminder_id: string; user_id: string; year_month: string }
+): Promise<ReminderLog> {
+  const sb = getSupabase();
+  const row: Record<string, unknown> = {
+    reminder_id: data.reminder_id,
+    user_id: data.user_id,
+    year_month: data.year_month,
+  };
+  if (data.paid !== undefined) row.paid = data.paid;
+  if (data.paid_at !== undefined) row.paid_at = data.paid_at;
+  if (data.transaction_id !== undefined) row.transaction_id = data.transaction_id;
+
+  const { data: inserted, error } = await sb
+    .from('reminder_logs')
+    .upsert(row, { onConflict: 'reminder_id,year_month' })
+    .select(REMINDER_LOG_ROW_SELECT)
+    .single();
+  if (error) throw error;
+  return mapReminderLogRow(inserted as Record<string, unknown>);
+}
+
+export async function deleteNonRecurringReminder(reminderId: string): Promise<void> {
+  const sb = getSupabase();
+  const { error } = await sb.from('reminders').delete().eq('id', reminderId).eq('recurring', false);
   if (error) throw error;
 }

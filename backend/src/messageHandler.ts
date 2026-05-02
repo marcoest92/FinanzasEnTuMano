@@ -9,6 +9,8 @@ import {
 import { config } from './config.js';
 import {
   checkAndIncrementTxCount,
+  countReminders,
+  createReminder,
   deletePending,
   ensureUser,
   findUserByTelegram,
@@ -20,8 +22,12 @@ import {
   type UserRow,
 } from './db.js';
 import { formatCop, formatDateDdMmYyyy, parseLocalDate, dateYyyyMmDdBogota } from './format.js';
-import { tryLocalParse } from './localParser.js';
-import { parseTransactionText, type ParsedTransaction } from './openai/parseTransaction.js';
+import { isLocalReminderIntent, tryLocalParse } from './localParser.js';
+import {
+  isReminderParseResult,
+  parseTransactionText,
+  type ParsedTransaction,
+} from './openai/parseTransaction.js';
 import {
   classifyPendingFollowup,
   pendingSummaryFromPayload,
@@ -29,7 +35,12 @@ import {
 import { transcribeOggOrMp3 } from './openai/transcribe.js';
 import { isConfirmYes, isNoOrCancel } from './confirm.js';
 import { isRateLimited } from './rateLimiter.js';
-import type { PendingPayload } from './types.js';
+import {
+  buildConfirmReminderCallbackData,
+  buildFrequencyCallbackData,
+  compactJsonToReminderIntent,
+} from './reminderFlow.js';
+import type { PendingPayload, ReminderIntent } from './types.js';
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -130,6 +141,41 @@ function isClarifyTypeOnly(parsed: ParsedTransaction): boolean {
   return parsed.needs_clarification && parsed.type === null && parsed.amount !== null;
 }
 
+function isUserProActive(user: UserRow): boolean {
+  if (user.plan !== 'pro') return false;
+  const expMs = user.plan_expires_at ? new Date(user.plan_expires_at).getTime() : NaN;
+  return Number.isFinite(expMs) && expMs > Date.now();
+}
+
+async function replyReminderConfirmation(
+  ctx: Context,
+  user: UserRow,
+  intent: ReminderIntent,
+  defaultDate: string
+): Promise<void> {
+  await upsertPending(user.id, {
+    category: '',
+    description: '',
+    date: defaultDate,
+    reminder_draft: intent,
+    reminder_phase: 'confirm',
+  });
+  const catLine =
+    intent.category != null && intent.category.length > 0
+      ? `🏷️ ${escapeHtml(intent.category)}`
+      : '🏷️ Sin categoría';
+  const text = `🔔 <b>Nuevo recordatorio</b>\n📋 ${escapeHtml(intent.name)}\n📅 Día ${intent.day_of_month} de cada mes\n${catLine}\n\n¿Guardamos este recordatorio?`;
+  const confirmCb = buildConfirmReminderCallbackData(intent);
+  await ctx.reply(text, {
+    parse_mode: 'HTML',
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback('✅ Guardar', confirmCb)],
+      [Markup.button.callback('✏️ Corregir', 'edit_reminder')],
+      [Markup.button.callback('❌ Cancelar', 'cancel_reminder')],
+    ]),
+  });
+}
+
 async function replyWithConfirmation(ctx: Context, p: PendingPayload): Promise<void> {
   await ctx.reply(buildConfirmationMessage(p), confirmationInlineKeyboard());
 }
@@ -181,6 +227,139 @@ async function enterPendingEditMode(ctx: Context, userId: string, pending: Pendi
 
 function isConfirmationPending(p: PendingPayload): boolean {
   return !p.awaiting_clarification && p.type !== undefined && p.amount !== undefined;
+}
+
+export async function handleConfirmReminderCallback(
+  ctx: Context,
+  jsonSuffix: string | null
+): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const { user } = await ensureUser(from.id, from.first_name ?? null, from.username ?? null);
+  let intent: ReminderIntent | null = null;
+  if (jsonSuffix != null && jsonSuffix.trim().length > 0) {
+    intent = compactJsonToReminderIntent(jsonSuffix.trim());
+  }
+  if (!intent) {
+    const row = await getPendingValid(user.id);
+    intent = row?.payload?.reminder_draft ?? null;
+  }
+  if (!intent) {
+    await ctx.reply('Ese recordatorio ya no está disponible. Escríbelo de nuevo.');
+    return;
+  }
+  const nowUnix = Math.floor(Date.now() / 1000);
+  const defaultDate = dateYyyyMmDdBogota(nowUnix);
+  await upsertPending(user.id, {
+    category: '',
+    description: '',
+    date: defaultDate,
+    reminder_draft: intent,
+    reminder_phase: 'frequency',
+  });
+  const recCb = buildFrequencyCallbackData('recurring', intent);
+  const onceCb = buildFrequencyCallbackData('once', intent);
+  const body = '¿Este recordatorio es <b>mensual</b> o <b>solo para este mes</b>?';
+  const kb = Markup.inlineKeyboard([
+    [Markup.button.callback('🔁 Mensual', recCb), Markup.button.callback('1️⃣ Solo este mes', onceCb)],
+  ]);
+  try {
+    await ctx.editMessageText(body, { parse_mode: 'HTML', ...kb });
+  } catch {
+    await ctx.reply(body, { parse_mode: 'HTML', ...kb });
+  }
+}
+
+export async function handleEditReminder(ctx: Context): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const { user } = await ensureUser(from.id, from.first_name ?? null, from.username ?? null);
+  await deletePending(user.id);
+  const msg = 'Describe el recordatorio de nuevo.';
+  try {
+    await ctx.editMessageText(msg, { reply_markup: { inline_keyboard: [] } });
+  } catch {
+    await ctx.reply(msg);
+  }
+}
+
+export async function handleCancelReminder(ctx: Context): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const { user } = await ensureUser(from.id, from.first_name ?? null, from.username ?? null);
+  await deletePending(user.id);
+  const msg = '❌ Cancelado.';
+  try {
+    await ctx.editMessageText(msg, { reply_markup: { inline_keyboard: [] } });
+  } catch {
+    await ctx.reply(msg);
+  }
+}
+
+export async function handleReminderFrequencyCallback(
+  ctx: Context,
+  freq: 'recurring' | 'once',
+  jsonSuffix: string | null
+): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const { user } = await ensureUser(from.id, from.first_name ?? null, from.username ?? null);
+  let intent: ReminderIntent | null = null;
+  if (jsonSuffix != null && jsonSuffix.trim().length > 0) {
+    intent = compactJsonToReminderIntent(jsonSuffix.trim());
+  }
+  if (!intent) {
+    const row = await getPendingValid(user.id);
+    intent = row?.payload?.reminder_draft ?? null;
+  }
+  if (!intent) {
+    await ctx.reply('No encontré el recordatorio. Empieza de nuevo.');
+    return;
+  }
+
+  if (!isUserProActive(user)) {
+    const n = await countReminders(user.id);
+    if (n >= 3) {
+      await deletePending(user.id);
+      const limitMsg =
+        '⚠️ En el plan gratuito puedes tener hasta 3 recordatorios activos.\n\n' +
+        'El plan Pro te permite recordatorios ilimitados por solo $9.900 COP/mes 👇';
+      try {
+        await ctx.editMessageText(limitMsg, {
+          ...Markup.inlineKeyboard([[Markup.button.callback('🚀 Quiero el plan Pro', 'show_pro_info')]]),
+        });
+      } catch {
+        await ctx.reply(
+          limitMsg,
+          Markup.inlineKeyboard([[Markup.button.callback('🚀 Quiero el plan Pro', 'show_pro_info')]])
+        );
+      }
+      return;
+    }
+  }
+
+  const recurring = freq === 'recurring';
+  try {
+    await createReminder({
+      user_id: user.id,
+      name: intent.name,
+      day_of_month: intent.day_of_month,
+      amount: null,
+      category: intent.category,
+      recurring,
+    });
+  } catch {
+    await ctx.reply('No pude guardar el recordatorio. Intenta de nuevo en unos segundos.');
+    return;
+  }
+  await deletePending(user.id);
+  const freqLabel = recurring ? '🔁 Mensual' : '1️⃣ Solo este mes';
+  const okText = `✅ <b>Recordatorio guardado</b>\n📋 ${escapeHtml(intent.name)}\n📅 Día ${intent.day_of_month}\n${freqLabel}`;
+  try {
+    await ctx.editMessageText(okText, { parse_mode: 'HTML', reply_markup: { inline_keyboard: [] } });
+  } catch {
+    await ctx.reply(okText, { parse_mode: 'HTML' });
+  }
 }
 
 export async function handleConfirmYes(ctx: Context): Promise<void> {
@@ -334,8 +513,27 @@ export async function handleIncomingText(
 
   // --- Con pendiente (confirmación o aclaración)
   if (pending) {
+    if (pending.reminder_draft && !pending.awaiting_clarification) {
+      const phase = pending.reminder_phase ?? 'confirm';
+      if (phase === 'frequency') {
+        await ctx.reply(
+          'Elige la frecuencia con los botones del mensaje anterior (🔁 Mensual o 1️⃣ Solo este mes).'
+        );
+        return;
+      }
+      await ctx.reply(
+        'Confirma el recordatorio con los botones del mensaje anterior (✅ Guardar / ✏️ Corregir / ❌ Cancelar).'
+      );
+      return;
+    }
+
     if (pending.awaiting_clarification) {
       const parsed = await parseTransactionText(raw, defaultDate, pending);
+      if (isReminderParseResult(parsed)) {
+        await deletePending(user.id);
+        await replyReminderConfirmation(ctx, user, parsed, defaultDate);
+        return;
+      }
       if (parsed.is_greeting) {
         await ctx.reply(
           `${ASSISTANT_INTRO_MESSAGE}\n\nSigo pendiente de los datos del movimiento que estábamos armando.`
@@ -392,6 +590,11 @@ export async function handleIncomingText(
     }
     if (intent.kind === 'correct') {
       const parsed = await parseTransactionText(intent.mergedText, defaultDate, null);
+      if (isReminderParseResult(parsed)) {
+        await deletePending(user.id);
+        await replyReminderConfirmation(ctx, user, parsed, defaultDate);
+        return;
+      }
       if (parsed.is_greeting) {
         await ctx.reply(`${ASSISTANT_INTRO_MESSAGE}\n\n${buildBlockPendingMessage(pending)}`);
         return;
@@ -430,6 +633,11 @@ export async function handleIncomingText(
 
   // --- Sin pendiente: nuevo parseo
   const localResult = tryLocalParse(raw, defaultDate);
+  if (isLocalReminderIntent(localResult)) {
+    console.log('[parser] local reminder:', raw, '→', JSON.stringify(localResult));
+    await replyReminderConfirmation(ctx, user, localResult, defaultDate);
+    return;
+  }
   if (localResult && !localResult.needs_clarification && !localResult.is_greeting) {
     const full = toFullPayload(localResult);
     if (full) {
@@ -442,6 +650,11 @@ export async function handleIncomingText(
   }
   console.log('[parser] openai:', raw);
   const parsed = await parseTransactionText(raw, defaultDate, null);
+  if (isReminderParseResult(parsed)) {
+    console.log('[parser] openai reminder:', raw, '→', JSON.stringify(parsed));
+    await replyReminderConfirmation(ctx, user, parsed, defaultDate);
+    return;
+  }
   if (parsed.is_greeting) {
     if (!isNew) {
       await replyReturningUserHome(ctx, user, msgDate);
