@@ -21,6 +21,8 @@ import {
   handleDeleteReminder,
   handleEditReminderExisting,
   handleReminderNew,
+  handleReminderPaid,
+  handleReminderSkip,
 } from './messageHandler.js';
 import { sendDailyReminders } from './reminderScheduler.js';
 import { sendMonthlySummaries, sendWeeklySummaries } from './summaryScheduler.js';
@@ -138,12 +140,12 @@ bot.action('confirm_edit', async (ctx) => {
 
 bot.action(/^reminder_paid:(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  // paso 6
+  await handleReminderPaid(ctx, ctx.match[1]!);
 });
 
 bot.action(/^reminder_skip:(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  // paso 6
+  await handleReminderSkip(ctx, ctx.match[1]!);
 });
 
 const app = Fastify({ logger: true });

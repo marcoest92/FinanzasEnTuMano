@@ -385,17 +385,35 @@ export async function insertTransaction(
   category: string,
   description: string,
   dateYyyyMmDd: string
-): Promise<void> {
+): Promise<string> {
   const sb = getSupabase();
-  const { error } = await sb.from('transactions').insert({
-    user_id: userId,
-    type,
-    amount,
-    category,
-    description,
-    date: dateYyyyMmDd,
-  });
+  const { data, error } = await sb
+    .from('transactions')
+    .insert({
+      user_id: userId,
+      type,
+      amount,
+      category,
+      description,
+      date: dateYyyyMmDd,
+    })
+    .select('id')
+    .single();
   if (error) throw error;
+  return String((data as { id: unknown }).id);
+}
+
+export async function getReminderByIdForUser(reminderId: string, userId: string): Promise<Reminder | null> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from('reminders')
+    .select(REMINDER_ROW_SELECT)
+    .eq('id', reminderId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return mapReminderRow(data as Record<string, unknown>);
 }
 
 export async function getReminders(userId: string): Promise<Reminder[]> {

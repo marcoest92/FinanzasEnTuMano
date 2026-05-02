@@ -26,6 +26,13 @@ export interface PendingPayload {
   reminder_draft?: ReminderIntent;
   /** `confirm` = esperando Guardar/Corregir/Cancelar; `frequency` = esperando mensual vs una vez. */
   reminder_phase?: 'confirm' | 'frequency';
+  /** Usuario pulsó "Pagado" en notificación de recordatorio; esperamos solo el monto en COP. */
+  awaiting_reminder_payment?: {
+    reminder_id: string;
+    reminder_name: string;
+    category: string | null;
+    recurring: boolean;
+  };
 }
 
 export interface Reminder {

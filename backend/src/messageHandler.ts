@@ -2,6 +2,8 @@ import type { Context } from 'telegraf';
 import { Markup } from 'telegraf';
 import {
   ASSISTANT_INTRO_MESSAGE,
+  DEFAULT_CATEGORY,
+  FIXED_CATEGORIES,
   SAVED_MESSAGE,
   VOICE_ERROR,
   VOICE_PROCESSING,
@@ -11,20 +13,23 @@ import {
   checkAndIncrementTxCount,
   countReminders,
   createReminder,
+  deleteNonRecurringReminder,
   deleteReminder,
   deletePending,
   ensureUser,
   findUserByTelegram,
   getMonthSummary,
+  getReminderByIdForUser,
   getReminders,
   getPendingValid,
   insertTransaction,
   updateUserProfile,
   upsertPending,
+  upsertReminderLog,
   type UserRow,
 } from './db.js';
 import { formatCop, formatDateDdMmYyyy, parseLocalDate, dateYyyyMmDdBogota } from './format.js';
-import { isLocalReminderIntent, tryLocalParse } from './localParser.js';
+import { isLocalReminderIntent, parseStandaloneAmountCop, tryLocalParse } from './localParser.js';
 import {
   isReminderParseResult,
   parseTransactionText,
@@ -267,6 +272,9 @@ export async function handleDeleteReminder(ctx: Context, reminderId: string): Pr
 }
 
 function pendingShortSummary(p: PendingPayload): string {
+  if (p.awaiting_reminder_payment) {
+    return `Pago del recordatorio «${p.awaiting_reminder_payment.reminder_name}» (falta el monto).`;
+  }
   const t = p.type === 'income' ? 'Ingreso' : 'Gasto';
   const amt = p.amount != null ? formatCop(p.amount) : '(monto pendiente)';
   return `${t} ${amt} en ${p.category}.`;
@@ -459,6 +467,67 @@ export async function handleCancelReminder(ctx: Context): Promise<void> {
     await ctx.editMessageText(msg, { reply_markup: { inline_keyboard: [] } });
   } catch {
     await ctx.reply(msg);
+  }
+}
+
+export async function handleReminderPaid(ctx: Context, reminderId: string): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const { user } = await ensureUser(from.id, from.first_name ?? null, from.username ?? null);
+  const reminder = await getReminderByIdForUser(reminderId, user.id);
+  if (!reminder) {
+    await ctx.reply('No encontré el recordatorio o no te pertenece.');
+    return;
+  }
+  const msgDate =
+    ctx.callbackQuery?.message && 'date' in ctx.callbackQuery.message
+      ? ctx.callbackQuery.message.date
+      : Math.floor(Date.now() / 1000);
+  const defaultDate = dateYyyyMmDdBogota(msgDate);
+  await upsertPending(user.id, {
+    category: reminder.category ?? '',
+    description: reminder.name,
+    date: defaultDate,
+    awaiting_reminder_payment: {
+      reminder_id: reminderId,
+      reminder_name: reminder.name,
+      category: reminder.category,
+      recurring: reminder.recurring,
+    },
+  });
+  const text = `💰 ¿Cuánto pagaste por ${escapeHtml(reminder.name)}?`;
+  try {
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: { inline_keyboard: [] } });
+  } catch {
+    await ctx.reply(text, { parse_mode: 'HTML' });
+  }
+}
+
+export async function handleReminderSkip(ctx: Context, reminderId: string): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const { user } = await ensureUser(from.id, from.first_name ?? null, from.username ?? null);
+  const reminder = await getReminderByIdForUser(reminderId, user.id);
+  if (!reminder) {
+    await ctx.reply('No encontré el recordatorio o no te pertenece.');
+    return;
+  }
+  const msgDate =
+    ctx.callbackQuery?.message && 'date' in ctx.callbackQuery.message
+      ? ctx.callbackQuery.message.date
+      : Math.floor(Date.now() / 1000);
+  const yearMonth = dateYyyyMmDdBogota(msgDate).slice(0, 7);
+  await upsertReminderLog({
+    reminder_id: reminderId,
+    user_id: user.id,
+    year_month: yearMonth,
+    paid: false,
+  });
+  const skipText = '⏭️ Omitido por este mes.';
+  try {
+    await ctx.editMessageText(skipText, { reply_markup: { inline_keyboard: [] } });
+  } catch {
+    await ctx.reply(skipText);
   }
 }
 
@@ -694,6 +763,68 @@ export async function handleIncomingText(
 
   // --- Con pendiente (confirmación o aclaración)
   if (pending) {
+    if (pending.awaiting_reminder_payment) {
+      const arm = pending.awaiting_reminder_payment;
+      const parsedAmount = parseStandaloneAmountCop(raw);
+      if (parsedAmount == null || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        await ctx.reply(
+          `No reconocí el monto. ¿Cuánto pagaste por ${escapeHtml(arm.reminder_name)}? Escribe solo el número, ej: 150000`,
+          { parse_mode: 'HTML' }
+        );
+        return;
+      }
+      const reminder = await getReminderByIdForUser(arm.reminder_id, user.id);
+      if (!reminder) {
+        await deletePending(user.id);
+        await ctx.reply('Ese recordatorio ya no existe.');
+        return;
+      }
+      const todayStr = dateYyyyMmDdBogota(msgDate);
+      const yearMonth = todayStr.slice(0, 7);
+      const categoryRaw = reminder.category ?? 'Imprevistos';
+      const category =
+        (FIXED_CATEGORIES as readonly string[]).find((c) => c.toLowerCase() === categoryRaw.trim().toLowerCase()) ??
+        DEFAULT_CATEGORY;
+      try {
+        const countResult = await checkAndIncrementTxCount(user.id);
+        if (countResult === 'limit_reached') {
+          await ctx.reply(
+            '⚠️ Alcanzaste tu límite de 40 registros este mes.\n\nEl plan Pro te da registros ilimitados por solo $9.900 COP/mes 👇',
+            Markup.inlineKeyboard([[Markup.button.callback('🚀 Quiero el plan Pro', 'show_pro_info')]])
+          );
+          await deletePending(user.id);
+          return;
+        }
+        const txId = await insertTransaction(
+          user.id,
+          'expense',
+          parsedAmount,
+          category,
+          reminder.name,
+          todayStr
+        );
+        await upsertReminderLog({
+          reminder_id: reminder.id,
+          user_id: user.id,
+          year_month: yearMonth,
+          paid: true,
+          paid_at: new Date().toISOString(),
+          transaction_id: txId,
+        });
+        if (!reminder.recurring) {
+          await deleteNonRecurringReminder(reminder.id);
+        }
+        await deletePending(user.id);
+        await ctx.reply(
+          `✅ Registrado\n📋 ${escapeHtml(reminder.name)} — ${escapeHtml(formatCop(parsedAmount))}`,
+          { parse_mode: 'HTML' }
+        );
+      } catch {
+        await ctx.reply('No pude guardar el pago. Intenta de nuevo en unos segundos.');
+      }
+      return;
+    }
+
     if (pending.reminder_draft && !pending.awaiting_clarification) {
       const phase = pending.reminder_phase ?? 'confirm';
       if (phase === 'frequency') {

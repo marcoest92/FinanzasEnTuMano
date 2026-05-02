@@ -165,6 +165,22 @@ function collectAmountCandidates(s: string): AmountSpan[] {
   return candidates;
 }
 
+/**
+ * Parsea un mensaje que debería ser solo un monto (COP): quita `$`, acepta `150.000`, `150 mil`, millones, etc.
+ * Reutiliza la misma heurística que el parser local de transacciones.
+ */
+export function parseStandaloneAmountCop(text: string): number | null {
+  const s = text
+    .trim()
+    .replace(/\$/g, '')
+    .replace(/\s*COP\s*/gi, '')
+    .trim();
+  if (!s) return null;
+  const span = pickSingleAmountSpan(collectAmountCandidates(s));
+  if (!span || !Number.isFinite(span.value) || span.value <= 0) return null;
+  return Math.round(span.value);
+}
+
 /** Deja un solo monto: prioriza spans más largos y exige que no queden dos cantidades separadas. */
 function pickSingleAmountSpan(candidates: AmountSpan[]): AmountSpan | null {
   const sorted = [...candidates].sort((a, b) => b.end - b.start - (a.end - a.start));
