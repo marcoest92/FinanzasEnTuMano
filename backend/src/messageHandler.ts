@@ -48,6 +48,17 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** Saludo corto sin datos de dinero: evita doble respuesta (bienvenida + resumen/OpenAI). */
+function isLikelyPureGreeting(text: string): boolean {
+  const t = text.trim().replace(/\s+/g, ' ').toLowerCase();
+  if (!t || t.startsWith('/')) return false;
+  if (/\d/.test(t)) return false;
+  if (t.length > 56) return false;
+  return /^(¡?\s*hola\b|hi\b|hello\b|hey\b|buen[oa]s?\s+(días|tardes|noches)\b|buen día\b|qué tal\b|que tal\b|saludos)[\s!.¡¿?…]*$/iu.test(
+    t
+  );
+}
+
 function displayFirstName(ctx: Context): string {
   const raw = ctx.from?.first_name?.trim();
   return escapeHtml(raw && raw.length > 0 ? raw : 'ahí');
@@ -638,24 +649,34 @@ export async function handleIncomingText(
     return;
   }
 
+  const raw = text.trim();
+  const msgDate =
+    ctx.message && 'date' in ctx.message ? ctx.message.date : Math.floor(Date.now() / 1000);
+
   let user: UserRow;
   let isNew = false;
   if (preloaded) {
     user = preloaded.user;
     isNew = preloaded.isNew ?? false;
-    if (!preloaded.skipWelcome) await replyNewUserWelcome(ctx);
+    if (isNew && !preloaded.skipWelcome) {
+      await replyNewUserWelcome(ctx);
+      if (isLikelyPureGreeting(raw)) {
+        return;
+      }
+    }
   } else {
     const ensured = await ensureUser(from.id, from.first_name ?? null, from.username ?? null);
     user = ensured.user;
     isNew = ensured.isNew;
-    if (isNew) await replyNewUserWelcome(ctx);
+    if (isNew) {
+      await replyNewUserWelcome(ctx);
+      if (isLikelyPureGreeting(raw)) {
+        return;
+      }
+    }
   }
 
   await updateUserProfile(user.id, from.first_name ?? null, from.username ?? null);
-
-  const raw = text.trim();
-  const msgDate =
-    ctx.message && 'date' in ctx.message ? ctx.message.date : Math.floor(Date.now() / 1000);
   if (raw.startsWith('/')) {
     if (raw.startsWith('/start')) {
       if (!isNew) await replyReturningUserHome(ctx, user, msgDate);
@@ -671,6 +692,11 @@ export async function handleIncomingText(
 
   const pendingRow = await getPendingValid(user.id);
   const pending = pendingRow?.payload ?? null;
+
+  if (!isNew && !pending && isLikelyPureGreeting(raw)) {
+    await replyReturningUserHome(ctx, user, msgDate);
+    return;
+  }
 
   // --- Con pendiente (confirmación o aclaración)
   if (pending) {
