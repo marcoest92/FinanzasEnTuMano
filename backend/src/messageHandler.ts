@@ -105,35 +105,49 @@ async function monthSummaryStatsHtml(
   return { inc, exp, balLine };
 }
 
-function remindersListHtml(reminders: Reminder[]): string {
-  if (reminders.length === 0) {
-    return (
-      '🔔 <b>Tus recordatorios</b>\n\n' +
-      'No tienes recordatorios guardados.\n\n' +
-      'Crea uno escribiendo por ejemplo: <code>Arriendo el 5</code> o <code>Recordatorio Netflix el 12</code>.'
-    );
-  }
-  const blocks = reminders.map((r, i) => {
-    const nm = escapeHtml(r.name);
-    const freq = r.recurring ? '🔁 Mensual' : '1️⃣ Una vez';
-    const cat =
-      r.category != null && r.category.length > 0 ? escapeHtml(r.category) : 'Sin categoría';
-    const amt =
-      r.amount != null && Number.isFinite(Number(r.amount))
-        ? ` · ${escapeHtml(formatCop(Number(r.amount)))}`
-        : '';
-    return `${i + 1}. <b>${nm}</b>${amt}\n   📅 Día ${r.day_of_month} · ${freq}\n   🏷️ ${cat}`;
-  });
-  return `🔔 <b>Tus recordatorios</b>\n\n${blocks.join('\n\n')}`;
+function displayReminderTitle(name: string): string {
+  if (!name) return '';
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-function remindersActionsKeyboard(reminders: Reminder[]) {
-  const rows = reminders.map((r) => [
-    Markup.button.callback('✏️ Editar', `edit_reminder_existing:${r.id}`),
-    Markup.button.callback('🗑️ Eliminar', `delete_reminder:${r.id}`),
-  ]);
-  rows.push([Markup.button.callback('➕ Nuevo recordatorio', 'reminder_new')]);
-  return Markup.inlineKeyboard(rows);
+const reminderNewOnlyKeyboard = Markup.inlineKeyboard([
+  [Markup.button.callback('➕ Nuevo recordatorio', 'reminder_new')],
+]);
+
+/** Un mensaje por recordatorio (cada uno con su teclado); el ➕ va solo al final. */
+async function sendRemindersListSequence(ctx: Context, reminders: Reminder[]): Promise<void> {
+  if (reminders.length === 0) {
+    await ctx.reply('🔔 <b>Tus recordatorios</b>\n\nNo tienes recordatorios guardados.', {
+      parse_mode: 'HTML',
+      ...reminderNewOnlyKeyboard,
+    });
+    return;
+  }
+
+  await ctx.reply('🔔 <b>Tus recordatorios</b>', { parse_mode: 'HTML' });
+
+  for (let i = 0; i < reminders.length; i++) {
+    const r = reminders[i]!;
+    const title = escapeHtml(displayReminderTitle(r.name));
+    const freq = r.recurring ? '🔁 Mensual' : '1️⃣ Una vez';
+    const catLine =
+      r.category != null && r.category.length > 0 ? escapeHtml(r.category) : 'Sin categoría';
+    const body = `${i + 1}. <b>${title}</b>\n📅 Día ${r.day_of_month} · ${freq}\n🏷️ ${catLine}`;
+    await ctx.reply(body, {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [
+          Markup.button.callback('✏️ Editar', `edit_reminder_existing:${r.id}`),
+          Markup.button.callback('🗑️ Eliminar', `delete_reminder:${r.id}`),
+        ],
+      ]),
+    });
+  }
+
+  await ctx.reply('¿Agregar otro recordatorio?', {
+    parse_mode: 'HTML',
+    ...reminderNewOnlyKeyboard,
+  });
 }
 
 async function replyReturningUserHome(ctx: Context, user: UserRow, msgDateUnix: number): Promise<void> {
@@ -196,11 +210,7 @@ export async function handleWelcomeRecordatorios(ctx: Context): Promise<void> {
     return;
   }
   const reminders = await getReminders(user.id);
-  const text = remindersListHtml(reminders);
-  await ctx.reply(text, {
-    parse_mode: 'HTML',
-    ...remindersActionsKeyboard(reminders),
-  });
+  await sendRemindersListSequence(ctx, reminders);
 }
 
 export async function handleReminderNew(ctx: Context): Promise<void> {
@@ -262,13 +272,7 @@ export async function handleDeleteReminder(ctx: Context, reminderId: string): Pr
   }
   await deleteReminder(id, user.id);
   const reminders = await getReminders(user.id);
-  const text = remindersListHtml(reminders);
-  const kb = remindersActionsKeyboard(reminders);
-  try {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', ...kb });
-  } catch {
-    await ctx.reply(text, { parse_mode: 'HTML', ...kb });
-  }
+  await sendRemindersListSequence(ctx, reminders);
 }
 
 function pendingShortSummary(p: PendingPayload): string {
