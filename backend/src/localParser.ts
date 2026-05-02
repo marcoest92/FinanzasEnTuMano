@@ -1,4 +1,4 @@
-import { DEFAULT_CATEGORY, FIXED_CATEGORIES } from './constants.js';
+import { DEFAULT_CATEGORY, FIXED_CATEGORIES, type Category } from './constants.js';
 import type { ParsedTransaction } from './openai/parseTransaction.js';
 import type { ReminderIntent } from './types.js';
 
@@ -11,86 +11,59 @@ const CORRECTION_FOLDED = [
   'cambiar',
 ];
 
-type CategoryRule = { category: (typeof FIXED_CATEGORIES)[number]; keys: string[] };
-
 /**
- * Cada `category` es un literal de FIXED_CATEGORIES (= CHECK en `transactions.category`).
- * Orden: frases largas / categorías más específicas antes que palabras genéricas (ej. cuota crédito vs cuota).
+ * Palabras clave → categoría (literales de `FIXED_CATEGORIES` = CHECK en Supabase).
+ * Orden: reglas y keywords más específicas antes (ej. `cuota casa` antes de `cuota` en otra regla).
  */
-const CATEGORY_KEYWORDS: CategoryRule[] = [
+const CATEGORY_KEYWORDS: Array<{ keywords: string[]; category: Category }> = [
   {
-    category: 'Alimentación',
-    keys: [
-      'supermercado',
-      'restaurante',
-      'domicilio',
-      'rappi food',
-      'ifood',
-      'almuerzo',
-      'desayuno',
-      'cena',
-      'cafe',
-      'tinto',
-      'mercado',
-      'comida',
-    ],
-  },
-  {
-    category: 'Transporte',
-    keys: [
-      'transmilenio',
-      'parqueadero',
-      'gasolina',
-      'taxi',
-      'uber',
-      'cabify',
-      'bus',
-      'metro',
-      'moto',
-      'peaje',
-      'didi',
-    ],
-  },
-  {
-    category: 'Servicios públicos',
-    keys: ['codensa', 'energia', 'agua', 'luz', 'gas', 'epm'],
-  },
-  {
-    category: 'Internet y teléfono',
-    keys: ['movistar', 'internet', 'celular', 'claro', 'tigo', 'wom', 'plan'],
-  },
-  {
-    category: 'Entretenimiento',
-    keys: ['netflix', 'spotify', 'youtube', 'concierto', 'cine', 'juego', 'steam'],
-  },
-  {
-    category: 'Salud',
-    keys: ['farmacia', 'drogueria', 'medicina', 'hospital', 'clinica', 'medico', 'doctor', 'droga'],
-  },
-  {
-    category: 'Educación',
-    keys: ['universidad', 'colegio', 'udemy', 'curso', 'clase', 'libro'],
-  },
-  {
-    category: 'Cuidado personal',
-    keys: ['peluqueria', 'barberia', 'gimnasio', 'gym'],
-  },
-  {
-    category: 'Deudas / créditos',
-    keys: ['cuota credito', 'credito', 'prestamo', 'deuda'],
-  },
-  {
+    keywords: ['cuota casa', 'arriendo', 'alquiler', 'vivienda', 'hipoteca'],
     category: 'Arriendo o cuota de vivienda',
-    keys: ['arriendo', 'alquiler', 'cuota'],
   },
   {
+    keywords: ['luz', 'agua', 'gas', 'epm', 'acueducto', 'electricidad', 'energia'],
+    category: 'Servicios públicos',
+  },
+  {
+    keywords: ['internet', 'telefono', 'telefonia', 'claro', 'tigo', 'movistar', 'wifi', 'celular'],
+    category: 'Internet y teléfono',
+  },
+  {
+    keywords: ['taxi', 'uber', 'bus', 'metro', 'transporte', 'gasolina', 'peaje', 'transmilenio', 'indriver'],
+    category: 'Transporte',
+  },
+  { keywords: ['seguro', 'axa', 'sura', 'seguros'], category: 'Seguros' },
+  { keywords: ['deuda', 'credito', 'prestamo', 'cuota', 'banco', 'tarjeta'], category: 'Deudas / créditos' },
+  {
+    keywords: ['mercado', 'supermercado', 'comida', 'alimentacion', 'drogueria', 'exito', 'jumbo', 'rappi'],
+    category: 'Alimentación',
+  },
+  {
+    keywords: ['medico', 'medicina', 'salud', 'farmacia', 'clinica', 'hospital', 'eps', 'cita'],
+    category: 'Salud',
+  },
+  {
+    keywords: ['colegio', 'universidad', 'educacion', 'curso', 'matricula', 'estudio'],
+    category: 'Educación',
+  },
+  { keywords: ['ropa', 'zapatos', 'ropa interior', 'vestido'], category: 'Ropa' },
+  {
+    keywords: ['restaurante', 'almuerzo', 'cena', 'desayuno', 'cafe', 'pizza', 'hamburguesa', 'hamburgesa'],
+    category: 'Restaurantes',
+  },
+  {
+    keywords: ['cine', 'concierto', 'entretenimiento', 'juego', 'videojuego'],
+    category: 'Entretenimiento',
+  },
+  {
+    keywords: ['netflix', 'spotify', 'amazon', 'disney', 'hbo', 'suscripcion', 'prime', 'membresia', 'premium'],
     category: 'Suscripciones',
-    keys: ['suscripcion', 'membresia', 'premium'],
   },
-  {
-    category: 'Regalos',
-    keys: ['regalo', 'detalle', 'presente'],
-  },
+  { keywords: ['barberia', 'peluqueria', 'estetica', 'spa', 'cuidado personal'], category: 'Cuidado personal' },
+  { keywords: ['regalo', 'regalos'], category: 'Regalos' },
+  { keywords: ['ahorro'], category: 'Ahorro' },
+  { keywords: ['inversion', 'acciones', 'fondos'], category: 'Inversión' },
+  { keywords: ['fondo emergencia', 'emergencia'], category: 'Fondo de emergencia' },
 ];
 
 function fold(s: string): string {
@@ -226,29 +199,57 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Palabras muy cortas que serían subcadena de otras (ej. gas / gastos). */
-function foldedHasKeyword(folded: string, key: string): boolean {
-  const k = fold(key);
-  if (!k) return false;
-  const asWord = new Set(['gas', 'luz', 'agua', 'epm', 'wom', 'tigo', 'gym', 'bus', 'metro', 'moto', 'peaje']);
-  if (asWord.has(k)) {
-    return new RegExp(`\\b${escapeRe(k)}\\b`).test(folded);
-  }
-  return folded.includes(k);
+function normalizeForCategoryInfer(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 }
 
-function categoryFromText(folded: string, type: 'income' | 'expense'): string {
-  if (type === 'income' && /\bahorro\b/.test(folded)) {
-    return 'Ahorro';
+/** Evita coincidencias por subcadena (ej. "gas" dentro de "gastos"). */
+const KEYWORD_REQUIRES_WORD_BOUNDARY = new Set([
+  'gas',
+  'luz',
+  'agua',
+  'epm',
+  'wom',
+  'tigo',
+  'gym',
+  'bus',
+  'metro',
+  'moto',
+  'peaje',
+  'ropa',
+  'eps',
+  'rappi',
+  'sura',
+  'axa',
+]);
+
+function keywordMatchesInNormalizedText(textNorm: string, keywordRaw: string): boolean {
+  const kw = normalizeForCategoryInfer(keywordRaw);
+  if (!kw) return false;
+  if (kw.includes(' ') || kw.length > 18) {
+    return textNorm.includes(kw);
   }
-  for (const { category, keys } of CATEGORY_KEYWORDS) {
-    for (const k of keys) {
-      if (foldedHasKeyword(folded, k)) {
-        return category;
-      }
+  if (KEYWORD_REQUIRES_WORD_BOUNDARY.has(kw)) {
+    return new RegExp(`\\b${escapeRe(kw)}\\b`).test(textNorm);
+  }
+  return textNorm.includes(kw);
+}
+
+export function inferCategoryLocal(text: string): Category | null {
+  const n = normalizeForCategoryInfer(text);
+  for (const { keywords, category } of CATEGORY_KEYWORDS) {
+    for (const kw of keywords) {
+      if (keywordMatchesInNormalizedText(n, kw)) return category;
     }
   }
-  return type === 'income' ? 'Imprevistos' : DEFAULT_CATEGORY;
+  return null;
+}
+
+function categoryFromText(source: string, type: 'income' | 'expense'): string {
+  return inferCategoryLocal(source) ?? (type === 'income' ? 'Imprevistos' : DEFAULT_CATEGORY);
 }
 
 function buildParsed(
@@ -335,7 +336,12 @@ function tryLocalReminderIntent(text: string): ReminderIntent | null {
   const name = cleanReminderName(subject);
   if (!name || !hasLetter(name)) return null;
 
-  return { intent: 'reminder', name, day_of_month: day, category: null };
+  return {
+    intent: 'reminder',
+    name,
+    day_of_month: day,
+    category: inferCategoryLocal(name) ?? null,
+  };
 }
 
 export type LocalParseResult = ReminderIntent | ParsedTransaction | null;
@@ -372,8 +378,8 @@ export function tryLocalParse(text: string, defaultDate: string): LocalParseResu
   const descriptionJoined = [before, after].filter(Boolean).join(' ').trim();
 
   if (income) {
-    const cat = categoryFromText(folded, 'income');
     const description = descriptionJoined || t.replace(/\s+/g, ' ').trim();
+    const cat = categoryFromText(description, 'income');
     return buildParsed('income', single.value, description, cat, defaultDate);
   }
 
@@ -381,11 +387,11 @@ export function tryLocalParse(text: string, defaultDate: string): LocalParseResu
   const atStart = single.start === 0;
 
   if (atEnd && before.length > 0 && hasLetter(before)) {
-    const cat = categoryFromText(fold(before), 'expense');
+    const cat = categoryFromText(before, 'expense');
     return buildParsed('expense', single.value, before, cat, defaultDate);
   }
   if (atStart && after.length > 0 && hasLetter(after)) {
-    const cat = categoryFromText(fold(after), 'expense');
+    const cat = categoryFromText(after, 'expense');
     return buildParsed('expense', single.value, after, cat, defaultDate);
   }
 
