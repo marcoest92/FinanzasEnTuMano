@@ -24,12 +24,17 @@ import {
   handleReminderPaid,
   handleReminderSkip,
 } from './messageHandler.js';
+import { getAllTelegramIds } from './db.js';
 import { sendDailyReminders } from './reminderScheduler.js';
 import { sendMonthlySummaries, sendWeeklySummaries } from './summaryScheduler.js';
 
 const bot = new Telegraf(config.telegramBotToken());
 
 const CRON_SECRET = process.env.CRON_SECRET ?? '';
+
+async function delayMs(ms: number): Promise<void> {
+  await new Promise((r) => setTimeout(r, ms));
+}
 
 bot.on('text', async (ctx) => {
   const t = ctx.message.text;
@@ -185,6 +190,37 @@ app.get('/cron/daily', async (request, reply) => {
   }
   sendDailyReminders(bot).catch(e => app.log.error(e));
   return reply.code(200).send({ ok: true });
+});
+
+app.post('/admin/broadcast', async (request, reply) => {
+  const auth = (request.headers as Record<string, string>)['x-cron-secret'];
+  if (CRON_SECRET && auth !== CRON_SECRET) {
+    return reply.code(401).send({ error: 'Unauthorized' });
+  }
+  const body = request.body as { message?: unknown };
+  const message = typeof body?.message === 'string' ? body.message.trim() : '';
+  if (!message) {
+    return reply.code(400).send({ error: 'message is required and must be non-empty' });
+  }
+  let sent = 0;
+  let failed = 0;
+  try {
+    const ids = await getAllTelegramIds();
+    for (const telegramId of ids) {
+      try {
+        await bot.telegram.sendMessage(telegramId, message, { parse_mode: 'HTML' });
+        sent++;
+      } catch (e) {
+        failed++;
+        console.error('[broadcast] sendMessage failed', { telegramId, error: e });
+      }
+      await delayMs(100);
+    }
+  } catch (e) {
+    app.log.error(e);
+    return reply.code(500).send({ error: 'Failed to fetch users' });
+  }
+  return reply.code(200).send({ ok: true, sent, failed });
 });
 
 app.post(config.webhookPath, async (request, reply) => {

@@ -156,6 +156,22 @@ export async function getAllActiveUsers(): Promise<{ id: string; telegram_id: nu
   });
 }
 
+export async function getAllTelegramIds(): Promise<number[]> {
+  const sb = getSupabase();
+  const { data, error } = await sb.from('users').select('telegram_id').not('telegram_id', 'is', null);
+  if (error) throw error;
+  const out: number[] = [];
+  for (const row of data ?? []) {
+    const r = row as Record<string, unknown>;
+    const tg = r.telegram_id;
+    if (tg === undefined || tg === null) continue;
+    const n = Number(tg);
+    if (!Number.isFinite(n)) continue;
+    out.push(n);
+  }
+  return out;
+}
+
 export interface UserRow {
   id: string;
   telegram_id: number;
