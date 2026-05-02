@@ -450,7 +450,7 @@ type ReminderWithUsersJoin = Record<string, unknown> & {
 
 export async function getRemindersByDay(
   dayOfMonth: number
-): Promise<(Reminder & { telegram_id: string })[]> {
+): Promise<(Reminder & { telegram_id: number })[]> {
   const sb = getSupabase();
   const { data, error } = await sb
     .from('reminders')
@@ -458,17 +458,19 @@ export async function getRemindersByDay(
     .eq('day_of_month', dayOfMonth);
   if (error) throw error;
 
-  const out: (Reminder & { telegram_id: string })[] = [];
+  const out: (Reminder & { telegram_id: number })[] = [];
   for (const raw of data ?? []) {
     const row = raw as ReminderWithUsersJoin;
     const u = row.users;
     const nested = Array.isArray(u) ? u[0] : u;
     const tg = nested?.telegram_id;
     if (tg === undefined || tg === null) continue;
+    const n = Number(tg);
+    if (!Number.isFinite(n)) continue;
     const { users: _u, ...rest } = row;
     out.push({
       ...mapReminderRow(rest as Record<string, unknown>),
-      telegram_id: String(tg),
+      telegram_id: n,
     });
   }
   return out;

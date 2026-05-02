@@ -22,6 +22,7 @@ import {
   handleEditReminderExisting,
   handleReminderNew,
 } from './messageHandler.js';
+import { sendDailyReminders } from './reminderScheduler.js';
 import { sendMonthlySummaries, sendWeeklySummaries } from './summaryScheduler.js';
 
 const bot = new Telegraf(config.telegramBotToken());
@@ -135,6 +136,16 @@ bot.action('confirm_edit', async (ctx) => {
   await handleConfirmEdit(ctx);
 });
 
+bot.action(/^reminder_paid:(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  // paso 6
+});
+
+bot.action(/^reminder_skip:(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  // paso 6
+});
+
 const app = Fastify({ logger: true });
 
 app.get('/', async () => ({
@@ -162,6 +173,15 @@ app.get('/cron/monthly', async (request, reply) => {
     return reply.code(401).send({ error: 'Unauthorized' });
   }
   sendMonthlySummaries(bot).catch(e => app.log.error(e));
+  return reply.code(200).send({ ok: true });
+});
+
+app.get('/cron/daily', async (request, reply) => {
+  const auth = (request.headers as Record<string, string>)['x-cron-secret'];
+  if (CRON_SECRET && auth !== CRON_SECRET) {
+    return reply.code(401).send({ error: 'Unauthorized' });
+  }
+  sendDailyReminders(bot).catch(e => app.log.error(e));
   return reply.code(200).send({ ok: true });
 });
 
