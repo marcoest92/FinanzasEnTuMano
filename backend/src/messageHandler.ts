@@ -111,9 +111,12 @@ function remindersListHtml(reminders: Reminder[]): string {
   return `🔔 <b>Tus recordatorios</b>\n\n${blocks.join('\n\n')}`;
 }
 
-function remindersDeleteInlineKeyboard(reminders: Reminder[]) {
+function remindersActionsKeyboard(reminders: Reminder[]) {
   return Markup.inlineKeyboard(
-    reminders.map((r) => [Markup.button.callback('🗑️ Eliminar', `delete_reminder:${r.id}`)])
+    reminders.map((r) => [
+      Markup.button.callback('✏️ Editar', `edit_reminder_existing:${r.id}`),
+      Markup.button.callback('🗑️ Eliminar', `delete_reminder:${r.id}`),
+    ])
   );
 }
 
@@ -184,8 +187,37 @@ export async function handleWelcomeRecordatorios(ctx: Context): Promise<void> {
   }
   await ctx.reply(text, {
     parse_mode: 'HTML',
-    ...remindersDeleteInlineKeyboard(reminders),
+    ...remindersActionsKeyboard(reminders),
   });
+}
+
+export async function handleEditReminderExisting(ctx: Context, reminderId: string): Promise<void> {
+  const from = ctx.from;
+  if (!from) return;
+  const user = await findUserByTelegram(from.id);
+  if (!user) {
+    await ctx.reply('No encontré tu cuenta. Escribe /start.');
+    return;
+  }
+  const id = reminderId.trim();
+  if (!id) {
+    await ctx.reply('No tienes permiso para editar este recordatorio.');
+    return;
+  }
+  const before = await getReminders(user.id);
+  const owns = before.some((r) => r.id === id);
+  if (!owns) {
+    await ctx.reply('No tienes permiso para editar este recordatorio.');
+    return;
+  }
+  await deleteReminder(id, user.id);
+  const editPrompt =
+    '✏️ Describe el recordatorio de nuevo.\nEj: Arriendo el 5 o Servicios el 15';
+  try {
+    await ctx.editMessageText(editPrompt, { reply_markup: { inline_keyboard: [] } });
+  } catch {
+    await ctx.reply(editPrompt);
+  }
 }
 
 export async function handleDeleteReminder(ctx: Context, reminderId: string): Promise<void> {
@@ -217,14 +249,14 @@ export async function handleDeleteReminder(ctx: Context, reminderId: string): Pr
     } else {
       await ctx.editMessageText(text, {
         parse_mode: 'HTML',
-        ...remindersDeleteInlineKeyboard(reminders),
+        ...remindersActionsKeyboard(reminders),
       });
     }
   } catch {
     if (reminders.length === 0) {
       await ctx.reply(text, { parse_mode: 'HTML' });
     } else {
-      await ctx.reply(text, { parse_mode: 'HTML', ...remindersDeleteInlineKeyboard(reminders) });
+      await ctx.reply(text, { parse_mode: 'HTML', ...remindersActionsKeyboard(reminders) });
     }
   }
 }
