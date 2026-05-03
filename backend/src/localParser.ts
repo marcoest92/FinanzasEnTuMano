@@ -16,6 +16,7 @@ const CORRECTION_FOLDED = [
  * Orden: reglas y keywords más específicas antes (ej. `cuota casa` antes de `cuota` en otra regla).
  */
 const CATEGORY_KEYWORDS: Array<{ keywords: string[]; category: Category }> = [
+  { keywords: ['arriendo recibido', 'canon'], category: 'Arriendo recibido' },
   {
     keywords: ['cuota casa', 'arriendo', 'alquiler', 'vivienda', 'hipoteca'],
     category: 'Arriendo o cuota de vivienda',
@@ -64,6 +65,15 @@ const CATEGORY_KEYWORDS: Array<{ keywords: string[]; category: Category }> = [
   { keywords: ['ahorro'], category: 'Ahorro' },
   { keywords: ['inversion', 'acciones', 'fondos'], category: 'Inversión' },
   { keywords: ['fondo emergencia', 'emergencia'], category: 'Fondo de emergencia' },
+  {
+    keywords: ['salario', 'nomina', 'sueldo', 'quincena', 'pago mensual'],
+    category: 'Salario / Nómina',
+  },
+  { keywords: ['freelance', 'proyecto', 'honorarios', 'factura'], category: 'Freelance' },
+  {
+    keywords: ['transferencia', 'consignacion', 'deposito'],
+    category: 'Transferencia recibida',
+  },
 ];
 
 function fold(s: string): string {
@@ -265,7 +275,7 @@ export function inferCategoryLocal(text: string): Category | null {
 }
 
 function categoryFromText(source: string, type: 'income' | 'expense'): string {
-  return inferCategoryLocal(source) ?? (type === 'income' ? 'Imprevistos' : DEFAULT_CATEGORY);
+  return inferCategoryLocal(source) ?? (type === 'income' ? 'Otros ingresos' : DEFAULT_CATEGORY);
 }
 
 function buildParsed(

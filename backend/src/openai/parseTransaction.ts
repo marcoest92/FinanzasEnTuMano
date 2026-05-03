@@ -81,6 +81,8 @@ Integra la nueva respuesta del usuario y completa tipo/monto/categoría/descripc
 Categorías válidas para movimientos (usa exactamente una de la lista cuando apliquen gastos/ingresos):
 - ${CATEGORIES_LIST}
 
+Para type "income", prioriza categorías de ingreso cuando el texto encaje: Salario / Nómina, Freelance, Arriendo recibido, Transferencia recibida; si es ingreso pero no queda claro cuál, usa "Otros ingresos". Para "expense", usa las categorías de gasto habituales (p. ej. Imprevistos solo si no encaja otra).
+
 Clasificación por intent:
 - intent "reminder": el usuario quiere un recordatorio mensual de un pago recurrente o ser avisado cada mes en un día fijo (ej. "Arriendo el 5", "recordarme Netflix el 12", cuota/servicio con día del mes). Devuelve SOLO estos campos con sentido: intent, name (descripción breve y limpia del recordatorio), day_of_month (entero 1-31), category (una categoría de la lista anterior si encaja, o null).
 - intent "transaction": gasto o ingreso puntual, saludo, aclaración, o cualquier mensaje que no sea recordatorio mensual. Incluye siempre: intent, is_greeting, type, amount, category, description, date, needs_clarification, clarification_question.

@@ -18,6 +18,11 @@ export const FIXED_CATEGORIES = [
   'Ahorro',
   'Inversión',
   'Fondo de emergencia',
+  'Salario / Nómina',
+  'Freelance',
+  'Arriendo recibido',
+  'Transferencia recibida',
+  'Otros ingresos',
   'Imprevistos',
 ] as const;
 
