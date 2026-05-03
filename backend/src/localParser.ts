@@ -214,6 +214,7 @@ function containsIncomeKeyword(foldedFull: string): boolean {
     'sueldo',
     'quincena',
     'salario',
+    'nomina',
   ] as const;
   for (const x of w) {
     if (new RegExp(`\\b${x}\\b`).test(foldedFull)) return true;
@@ -266,6 +267,9 @@ function keywordMatchesInNormalizedText(textNorm: string, keywordRaw: string): b
 
 export function inferCategoryLocal(text: string): Category | null {
   const n = normalizeForCategoryInfer(text);
+  if (n.includes('nomina') || n.includes('salario')) {
+    return 'Salario / Nómina';
+  }
   for (const { keywords, category } of CATEGORY_KEYWORDS) {
     for (const kw of keywords) {
       if (keywordMatchesInNormalizedText(n, kw)) return category;
