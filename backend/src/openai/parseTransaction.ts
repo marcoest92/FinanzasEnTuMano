@@ -82,6 +82,7 @@ Categorías válidas para movimientos (usa exactamente una de la lista cuando ap
 - ${CATEGORIES_LIST}
 
 Para type "income", prioriza categorías de ingreso cuando el texto encaje: Salario / Nómina, Freelance, Arriendo recibido, Transferencia recibida; si es ingreso pero no queda claro cuál, usa "Otros ingresos". Para "expense", usa las categorías de gasto habituales (p. ej. Imprevistos solo si no encaja otra).
+En contexto colombiano, usa "Seguridad social" para aportes de independientes o planilla (ej. planilla, seguridad social, EPS, pensión, ARL, Colpensiones, AFP). Usa "Salud" para gastos médicos directos (ej. citas, medicamentos, clínica, hospital).
 
 Clasificación por intent:
 - intent "reminder": el usuario quiere un recordatorio mensual de un pago recurrente o ser avisado cada mes en un día fijo (ej. "Arriendo el 5", "recordarme Netflix el 12", cuota/servicio con día del mes). Devuelve SOLO estos campos con sentido: intent, name (descripción breve y limpia del recordatorio), day_of_month (entero 1-31), category (una categoría de la lista anterior si encaja, o null).

@@ -5,6 +5,7 @@ export const FIXED_CATEGORIES = [
   'Internet y teléfono',
   'Transporte',
   'Seguros',
+  'Seguridad social',
   'Deudas / créditos',
   'Alimentación',
   'Salud',

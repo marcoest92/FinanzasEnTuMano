@@ -34,13 +34,17 @@ const CATEGORY_KEYWORDS: Array<{ keywords: string[]; category: Category }> = [
     category: 'Transporte',
   },
   { keywords: ['seguro', 'axa', 'sura', 'seguros'], category: 'Seguros' },
+  {
+    keywords: ['planilla', 'seguridad social', 'eps', 'pension', 'arl', 'colpensiones', 'afp'],
+    category: 'Seguridad social',
+  },
   { keywords: ['deuda', 'credito', 'prestamo', 'cuota', 'banco', 'tarjeta'], category: 'Deudas / créditos' },
   {
     keywords: ['mercado', 'supermercado', 'comida', 'alimentacion', 'drogueria', 'exito', 'jumbo', 'rappi'],
     category: 'Alimentación',
   },
   {
-    keywords: ['medico', 'medicina', 'salud', 'farmacia', 'clinica', 'hospital', 'eps', 'cita', 'gym', 'gimnasio'],
+    keywords: ['medico', 'medicina', 'salud', 'farmacia', 'clinica', 'hospital', 'cita', 'gym', 'gimnasio'],
     category: 'Salud',
   },
   {
